@@ -1,0 +1,12 @@
+venv/
+.idea/
+
+# Distribution / packaging
+build/
+dist/
+
+__pycache__/
+*.py[cod]
+*.log
+*.egg-info/
+
