@@ -97,11 +97,22 @@ class CodeEditor(QPlainTextEdit):
 # ====== 单个 JSON 窗口 ======
 class JsonFormatterWindow(QWidget):
     windows = []  # 全局管理所有窗口引用
+    window_count = 0  # 新增：窗口计数
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("JSON 格式化工具")
-        self.resize(1000, 600)
+
+        # 自增窗口计数
+        JsonFormatterWindow.window_count += 1
+        self.window_number = JsonFormatterWindow.window_count
+
+        # 设置标题：第一个窗口不加数字
+        if self.window_number == 1:
+            self.setWindowTitle("JSON 格式化工具")
+        else:
+            self.setWindowTitle(f"JSON 格式化工具 {self.window_number}")
+
+        self.resize(1000, 700)
 
         # 输入输出
         self.input_edit = CodeEditor()

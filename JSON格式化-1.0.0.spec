@@ -21,7 +21,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='JSON格式化',
+    name='JSON格式化-1.0.0',
     debug=False,
     bootloader_ignore_signals=False,
     strip=True,
@@ -41,11 +41,11 @@ coll = COLLECT(
     strip=True,
     upx=True,
     upx_exclude=[],
-    name='JSON格式化',
+    name='JSON格式化-1.0.0',
 )
 app = BUNDLE(
     coll,
-    name='JSON格式化.app',
+    name='JSON格式化-1.0.0.app',
     icon='icon.icns',
     bundle_identifier='com.lawliet.jsonformatter',
 )
