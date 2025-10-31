@@ -1,4 +1,5 @@
 from PySide6 import QtCore
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QFileDialog, QMessageBox, QLabel,
@@ -195,6 +196,13 @@ class JsonFormatterWindow(QWidget):
         open_action.triggered.connect(self.open_file)
         main_layout.setMenuBar(menu_bar)
 
+        # 新增帮助菜单
+        help_menu = QMenu("帮助", self)
+        menu_bar.addMenu(help_menu)
+        # 添加“关于 JSON 格式化器”菜单项
+        about_action = help_menu.addAction("关于 JSON 格式化器")
+        about_action.triggered.connect(self.show_about_dialog)
+
         JsonFormatterWindow.windows.append(self)
 
     def auto_format_input(self):
@@ -372,6 +380,25 @@ class JsonFormatterWindow(QWidget):
             except Exception as e:
                 QMessageBox.critical(self, "打开失败", str(e))
 
+    def show_about_dialog(self):
+        """
+        显示关于对话框
+        """
+        version = "v2.0.0"
+        info = f"""
+        <h3>JSON 格式化查看器 {version}</h3>
+        <p>桌面版 JSON 可视化工具。</p>
+        <p>支持 JSON 格式化、压缩、树形展示等功能。</p>
+        <p>作者：lawliet</p>
+        """
+
+        msg = QMessageBox(self)
+        msg.setWindowTitle("关于 JSON 格式化器")
+        msg.setTextFormat(Qt.RichText)
+        msg.setText(info)
+        msg.setIcon(QMessageBox.Information)
+        msg.setStandardButtons(QMessageBox.Ok)
+        msg.exec()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)

@@ -1,6 +1,6 @@
 # 打包命令
 ## mac打包命令
-`pyinstaller --windowed --name "JSON格式化-1.0.0" --strip --clean --icon=icon.icns --osx-bundle-identifier "com.lawliet.jsonformatter"  -y JsonFormatterApp.py`
+`pyinstaller --windowed --name "JSON格式化" --strip --clean --icon=icon.icns --osx-bundle-identifier "com.lawliet.jsonformatter"  -y JsonFormatterApp.py`
 
 ## windows打包命令
 `pyinstaller --windowed --name "JSON格式化" --strip --clean --icon=icon.ico -y JsonFormatterApp.py`
