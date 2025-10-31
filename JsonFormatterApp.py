@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
     QTreeWidget, QTreeWidgetItem, QMenuBar, QMenu,
     QPlainTextEdit, QTextEdit, QSplitter
 )
-from PySide6.QtGui import QFont, QColor, QPainter, QTextFormat
+from PySide6.QtGui import QFont, QColor, QPainter, QTextFormat, QPalette, QFontDatabase
 import json
 import sys
 
@@ -25,8 +25,10 @@ class LineNumberArea(QWidget):
 
 # ====== 支持行号的 QPlainTextEdit ======
 class CodeEditor(QPlainTextEdit):
-    def __init__(self):
+    def __init__(self, placeholder=""):
         super().__init__()
+        self.placeholder = placeholder
+        self.textChanged.connect(self.update)  # 内容变化时刷新
         self.lineNumberArea = LineNumberArea(self)
         self.blockCountChanged.connect(self.update_line_number_area_width)
         self.updateRequest.connect(self.update_line_number_area)
@@ -95,6 +97,33 @@ class CodeEditor(QPlainTextEdit):
             extraSelections.append(selection)
         self.setExtraSelections(extraSelections)
 
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if not self.toPlainText() and self.placeholder:
+            painter = QPainter(self.viewport())
+            painter.setPen(QColor(150, 150, 150))
+            painter.drawText(self.viewport().rect().adjusted(4, 4, -4, -4),
+                             Qt.AlignTop | Qt.AlignLeft,
+                             self.placeholder)
+
+class PlaceholderTreeWidget(QTreeWidget):
+    def __init__(self, placeholder="", *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.placeholder = placeholder
+        self.model().rowsInserted.connect(self.update)  # 数据变化刷新
+        self.model().rowsRemoved.connect(self.update)
+        self.model().modelReset.connect(self.update)
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        if self.topLevelItemCount() == 0 and self.placeholder:
+            painter = QPainter(self.viewport())
+            painter.setPen(QColor(150, 150, 150))
+            painter.drawText(self.viewport().rect().adjusted(4, 4, -4, -4),
+                             Qt.AlignTop | Qt.AlignLeft,
+                             self.placeholder)
+
+
 # ====== JSON 格式化窗口 ======
 class JsonFormatterWindow(QWidget):
     windows = []
@@ -107,17 +136,18 @@ class JsonFormatterWindow(QWidget):
         self.setWindowTitle(f"JSON 格式化工具" + (f" {self.window_number}" if self.window_number > 1 else ""))
         self.resize(1200, 700)
 
-        font = QFont("Consolas", 15)
+        font = QFontDatabase.systemFont(QFontDatabase.FixedFont)
+        font.setPointSize(15)
 
         # 输入编辑器
-        self.input_edit = CodeEditor()
+        self.input_edit = CodeEditor(placeholder="原始 JSON")
         self.input_edit.setFont(font)
 
         # 用户输入json后自动进行格式化
         self.input_edit.textChanged.connect(self.auto_format_input)
 
         # 输出树
-        self.output_tree = QTreeWidget()
+        self.output_tree = PlaceholderTreeWidget(placeholder="JSON 树（折叠/展开）, 选中节点后可展示对应 JSON 结果")
         self.output_tree.setHeaderHidden(True)
         self.output_tree.setFont(font)
         self.output_tree.itemClicked.connect(self.on_tree_item_clicked)
@@ -126,19 +156,22 @@ class JsonFormatterWindow(QWidget):
         self.output_edit = QTextEdit()
         self.output_edit.setFont(font)
         self.output_edit.setReadOnly(True)
+        # 设置输出编辑器 placeholder 文字颜色更亮
+        palette = self.output_edit.palette()
+        palette.setColor(QPalette.PlaceholderText, QColor("#999999")) # 注意这里是 QPalette.PlaceholderText
+        self.output_edit.setPalette(palette)
 
-        # 标签
-        label_input = QLabel("原始 JSON")
-        label_tree = QLabel("JSON 树（折叠/展开）")
-        label_output = QLabel("JSON 结果（可复制）")
-        for lbl in [label_input, label_tree, label_output]:
-            lbl.setAlignment(QtCore.Qt.AlignCenter)
+        # ====== 编辑器占满三栏，使用 placeholder ======
+        self.input_edit.setPlainText("")  # 清空内容
+        self.input_edit.setPlaceholderText("原始 JSON")
+        QtCore.QTimer.singleShot(50, self.input_edit.clearFocus)
+        self.output_tree.setPlaceholderText = "JSON 树（折叠/展开）" # QTreeWidget 不能直接 placeholder，可忽略或留空
+        self.output_edit.setPlaceholderText("JSON 结果")
 
         # 三栏 splitter
         left_layout = QVBoxLayout()
         left_layout.setContentsMargins(0,0,0,0)
         left_layout.setSpacing(2)
-        left_layout.addWidget(label_input)
         left_layout.addWidget(self.input_edit)
         left_widget = QWidget()
         left_widget.setLayout(left_layout)
@@ -146,7 +179,6 @@ class JsonFormatterWindow(QWidget):
         middle_layout = QVBoxLayout()
         middle_layout.setContentsMargins(0,0,0,0)
         middle_layout.setSpacing(2)
-        middle_layout.addWidget(label_tree)
         middle_layout.addWidget(self.output_tree)
         middle_widget = QWidget()
         middle_widget.setLayout(middle_layout)
@@ -154,7 +186,6 @@ class JsonFormatterWindow(QWidget):
         right_layout = QVBoxLayout()
         right_layout.setContentsMargins(0,0,0,0)
         right_layout.setSpacing(2)
-        right_layout.addWidget(label_output)
         right_layout.addWidget(self.output_edit)
         right_widget = QWidget()
         right_widget.setLayout(right_layout)
@@ -165,7 +196,7 @@ class JsonFormatterWindow(QWidget):
         splitter.addWidget(right_widget)
 
         # 设置初始宽度比例：原始 JSON 1/5，JSON 树 2/5，JSON 结果 2/5
-        total_width = self.width() if self.width() > 0 else 1200  # 默认宽度
+        total_width = self.width() if self.width() > 0 else 1200 # 默认宽度
         splitter.setSizes([
             int(total_width * 1 / 5),  # 原始 JSON
             int(total_width * 2 / 5),  # JSON 树
@@ -183,10 +214,15 @@ class JsonFormatterWindow(QWidget):
         btn_copy.clicked.connect(self.copy_result)
         btn_layout = QHBoxLayout()
         for btn in [btn_format, btn_compress, btn_copy, btn_save]:
+            font = btn.font()
+            font.setBold(True)  # 按钮字体加粗
+            btn.setFont(font)
             btn_layout.addWidget(btn)
 
         # 主布局
         main_layout = QVBoxLayout()
+        main_layout.setContentsMargins(2, 2, 2, 2)  # 左上右下边距，顶部/底部间距缩小
+        main_layout.setSpacing(2)  # 垂直间距缩小
         main_layout.addLayout(btn_layout)
         main_layout.addWidget(splitter)
         self.setLayout(main_layout)
