@@ -163,9 +163,14 @@ class JsonFormatterWindow(QWidget):
         splitter.addWidget(left_widget)
         splitter.addWidget(middle_widget)
         splitter.addWidget(right_widget)
-        splitter.setStretchFactor(0,1)
-        splitter.setStretchFactor(1,1)
-        splitter.setStretchFactor(2,1)
+
+        # 设置初始宽度比例：原始 JSON 1/5，JSON 树 2/5，JSON 结果 2/5
+        total_width = self.width() if self.width() > 0 else 1200  # 默认宽度
+        splitter.setSizes([
+            int(total_width * 1 / 5),  # 原始 JSON
+            int(total_width * 2 / 5),  # JSON 树
+            int(total_width * 2 / 5)  # JSON 结果
+        ])
 
         # 按钮
         btn_format = QPushButton("格式化")
