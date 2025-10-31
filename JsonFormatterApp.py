@@ -273,22 +273,73 @@ class JsonFormatterWindow(QWidget):
         # 保存窗口引用
         JsonFormatterWindow.windows.append(self)
 
-    # ====== 自动格式化输入 JSON ======
-    def auto_format_input(self):
+    # ====== 核心 JSON 处理逻辑 ======
+    def process_json(self, text: str, show_error_dialog=True):
         """
-        当原始 JSON 编辑器内容变化时，自动格式化
+        核心：格式化并渲染 JSON。
+        支持字段值为 JSON 字符串的情况。
+        :param text: 原始 JSON 文本
+        :param show_error_dialog: 是否显示错误弹窗（自动模式下不弹）
         """
-        text = self.input_edit.toPlainText().strip()
         if not text:
             self.output_tree.clear()
             self.output_edit.clear()
             return
+
         try:
             data = json.loads(text)
+
+            # 递归解析嵌套 JSON 字符串
+            def parse_nested(obj):
+                if isinstance(obj, dict):
+                    for k, v in obj.items():
+                        if isinstance(v, str):
+                            try:
+                                obj[k] = json.loads(v)
+                            except Exception:
+                                pass
+                        else:
+                            parse_nested(v)
+                elif isinstance(obj, list):
+                    for i, v in enumerate(obj):
+                        if isinstance(v, str):
+                            try:
+                                obj[i] = json.loads(v)
+                            except Exception:
+                                pass
+                        else:
+                            parse_nested(v)
+                return obj
+
+            data = parse_nested(data)
+
+            # 更新树与右侧结果
             self.populate_tree(data)
             self.output_edit.setPlainText(json.dumps(data, indent=4, ensure_ascii=False))
-        except json.JSONDecodeError:
-            pass  # JSON 不完整时不报错
+
+        except json.JSONDecodeError as e:
+            # 自动触发时不提示，只清空结果
+            if show_error_dialog:
+                QMessageBox.critical(self, "格式化失败", f"{e.msg}\n行: {e.lineno}, 列: {e.colno}")
+            else:
+                self.output_tree.clear()
+                self.output_edit.clear()
+
+    # ====== 自动格式化输入 JSON ======
+    def auto_format_input(self):
+        """
+        自动格式化：实时解析输入（不弹窗提示错误）
+        """
+        text = self.input_edit.toPlainText().strip()
+        self.process_json(text, show_error_dialog=False)
+
+    # ====== 点击“格式化”按钮 ======
+    def format_json(self):
+        """
+        按钮触发格式化：会显示错误提示框
+        """
+        text = self.input_edit.toPlainText().strip()
+        self.process_json(text, show_error_dialog=True)
 
     # ====== 新建窗口静态方法 ======
     @staticmethod
@@ -371,17 +422,7 @@ class JsonFormatterWindow(QWidget):
         except Exception:
             self.output_edit.setPlainText(item.text(0))
 
-    # ====== 功能按钮逻辑 ======
-    def format_json(self):
-        text = self.input_edit.toPlainText().strip()
-        if not text:
-            return
-        try:
-            data = json.loads(text)
-            self.populate_tree(data)
-            self.output_edit.setPlainText(json.dumps(data, indent=4, ensure_ascii=False))
-        except json.JSONDecodeError as e:
-            QMessageBox.critical(self, "格式化失败", f"{e.msg}\n行: {e.lineno}, 列: {e.colno}")
+
 
     def compress_json(self):
         text = self.input_edit.toPlainText().strip()
