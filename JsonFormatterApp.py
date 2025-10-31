@@ -12,30 +12,44 @@ import sys
 
 # ====== 行号编辑器 ======
 class LineNumberArea(QWidget):
+    """
+    显示编辑器左侧行号的 QWidget
+    """
     def __init__(self, editor):
         super().__init__(editor)
         self.editor = editor
 
     def sizeHint(self):
+        # 告诉布局管理器行号区域的宽度
         return QtCore.QSize(self.editor.line_number_area_width(), 0)
 
     def paintEvent(self, event):
+        # 代理绘制，由父 CodeEditor 处理
         self.editor.line_number_area_paint_event(event)
 
 
 # ====== 支持行号的 QPlainTextEdit ======
 class CodeEditor(QPlainTextEdit):
+    """
+    支持行号显示的 QPlainTextEdit
+    并实现 placeholder 功能
+    """
     def __init__(self, placeholder=""):
         super().__init__()
         self.placeholder = placeholder
-        self.textChanged.connect(self.update)  # 内容变化时刷新
+        self.textChanged.connect(self.update)  # 内容变化时刷新 placeholder
         self.lineNumberArea = LineNumberArea(self)
-        self.blockCountChanged.connect(self.update_line_number_area_width)
-        self.updateRequest.connect(self.update_line_number_area)
-        self.cursorPositionChanged.connect(self.highlight_current_line)
+
+        # 绑定信号
+        self.blockCountChanged.connect(self.update_line_number_area_width)  # 块数量变化时更新宽度
+        self.updateRequest.connect(self.update_line_number_area)  # 滚动/更新时刷新行号
+        self.cursorPositionChanged.connect(self.highlight_current_line)  # 光标行高亮
+
         self.update_line_number_area_width(0)
         self.highlight_current_line()
-        self.setLineWrapMode(QPlainTextEdit.NoWrap)
+        self.setLineWrapMode(QPlainTextEdit.NoWrap)  # 不自动换行
+
+        # 设置暗色背景和字体颜色
         self.setStyleSheet("""
         QPlainTextEdit {
             background-color: #2b2b2b;
@@ -44,15 +58,18 @@ class CodeEditor(QPlainTextEdit):
         }
         """)
 
+    # ====== 行号宽度计算 ======
     def line_number_area_width(self):
         digits = len(str(max(1, self.blockCount())))
         space = 10 + self.fontMetrics().horizontalAdvance('9') * digits
         return space
 
     def update_line_number_area_width(self, _):
+        # 设置编辑器左侧边距，为行号留空间
         self.setViewportMargins(self.line_number_area_width(), 0, 0, 0)
 
     def update_line_number_area(self, rect, dy):
+        # 滚动或更新时刷新行号
         if dy:
             self.lineNumberArea.scroll(0, dy)
         else:
@@ -61,15 +78,17 @@ class CodeEditor(QPlainTextEdit):
             self.update_line_number_area_width(0)
 
     def resizeEvent(self, event):
+        # 调整编辑器大小时，重新布局行号区域
         super().resizeEvent(event)
         cr = self.contentsRect()
         self.lineNumberArea.setGeometry(
             QtCore.QRect(cr.left(), cr.top(), self.line_number_area_width(), cr.height())
         )
 
+    # ====== 绘制行号 ======
     def line_number_area_paint_event(self, event):
         painter = QPainter(self.lineNumberArea)
-        painter.fillRect(event.rect(), QColor(40, 40, 40))
+        painter.fillRect(event.rect(), QColor(40, 40, 40))  # 背景
         block = self.firstVisibleBlock()
         blockNumber = block.blockNumber()
         top = round(self.blockBoundingGeometry(block).translated(self.contentOffset()).top())
@@ -85,11 +104,12 @@ class CodeEditor(QPlainTextEdit):
             bottom = top + round(self.blockBoundingRect(block).height())
             blockNumber += 1
 
+    # ====== 当前行高亮 ======
     def highlight_current_line(self):
         extraSelections = []
         if not self.isReadOnly():
             selection = QTextEdit.ExtraSelection()
-            lineColor = QColor(60, 60, 60)
+            lineColor = QColor(60, 60, 60)  # 当前行背景色
             selection.format.setBackground(lineColor)
             selection.format.setProperty(QTextFormat.FullWidthSelection, True)
             selection.cursor = self.textCursor()
@@ -97,20 +117,27 @@ class CodeEditor(QPlainTextEdit):
             extraSelections.append(selection)
         self.setExtraSelections(extraSelections)
 
+    # ====== 绘制 placeholder ======
     def paintEvent(self, event):
         super().paintEvent(event)
         if not self.toPlainText() and self.placeholder:
             painter = QPainter(self.viewport())
-            painter.setPen(QColor(150, 150, 150))
+            painter.setPen(QColor(150, 150, 150))  # 灰色文字
             painter.drawText(self.viewport().rect().adjusted(4, 4, -4, -4),
                              Qt.AlignTop | Qt.AlignLeft,
                              self.placeholder)
 
+
+# ====== 支持 placeholder 的 QTreeWidget ======
 class PlaceholderTreeWidget(QTreeWidget):
+    """
+    扩展 QTreeWidget，空时显示 placeholder
+    """
     def __init__(self, placeholder="", *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.placeholder = placeholder
-        self.model().rowsInserted.connect(self.update)  # 数据变化刷新
+        # 数据变化时刷新绘制 placeholder
+        self.model().rowsInserted.connect(self.update)
         self.model().rowsRemoved.connect(self.update)
         self.model().modelReset.connect(self.update)
 
@@ -118,7 +145,7 @@ class PlaceholderTreeWidget(QTreeWidget):
         super().paintEvent(event)
         if self.topLevelItemCount() == 0 and self.placeholder:
             painter = QPainter(self.viewport())
-            painter.setPen(QColor(150, 150, 150))
+            painter.setPen(QColor(150, 150, 150))  # 灰色文字
             painter.drawText(self.viewport().rect().adjusted(4, 4, -4, -4),
                              Qt.AlignTop | Qt.AlignLeft,
                              self.placeholder)
@@ -126,8 +153,8 @@ class PlaceholderTreeWidget(QTreeWidget):
 
 # ====== JSON 格式化窗口 ======
 class JsonFormatterWindow(QWidget):
-    windows = []
-    window_count = 0
+    windows = []         # 所有窗口实例
+    window_count = 0     # 窗口计数，用于区分标题
 
     def __init__(self):
         super().__init__()
@@ -136,39 +163,33 @@ class JsonFormatterWindow(QWidget):
         self.setWindowTitle(f"JSON 格式化工具" + (f" {self.window_number}" if self.window_number > 1 else ""))
         self.resize(1200, 700)
 
+        # 使用固定宽度字体
         font = QFontDatabase.systemFont(QFontDatabase.FixedFont)
         font.setPointSize(15)
 
-        # 输入编辑器
+        # ====== 输入编辑器 ======
         self.input_edit = CodeEditor(placeholder="原始 JSON")
         self.input_edit.setFont(font)
+        self.input_edit.textChanged.connect(self.auto_format_input)  # 自动格式化 JSON
 
-        # 用户输入json后自动进行格式化
-        self.input_edit.textChanged.connect(self.auto_format_input)
-
-        # 输出树
-        self.output_tree = PlaceholderTreeWidget(placeholder="JSON 树（折叠/展开）, 选中节点后可展示对应 JSON 结果")
+        # ====== 输出树 ======
+        self.output_tree = PlaceholderTreeWidget(
+            placeholder="JSON 树（折叠/展开）, 选中节点后可展示对应 JSON 结果"
+        )
         self.output_tree.setHeaderHidden(True)
         self.output_tree.setFont(font)
         self.output_tree.itemClicked.connect(self.on_tree_item_clicked)
 
-        # 输出文本
+        # ====== 输出文本 ======
         self.output_edit = QTextEdit()
         self.output_edit.setFont(font)
         self.output_edit.setReadOnly(True)
-        # 设置输出编辑器 placeholder 文字颜色更亮
         palette = self.output_edit.palette()
-        palette.setColor(QPalette.PlaceholderText, QColor("#999999")) # 注意这里是 QPalette.PlaceholderText
+        palette.setColor(QPalette.PlaceholderText, QColor("#999999"))  # placeholder 灰色
         self.output_edit.setPalette(palette)
 
-        # ====== 编辑器占满三栏，使用 placeholder ======
-        self.input_edit.setPlainText("")  # 清空内容
-        self.input_edit.setPlaceholderText("原始 JSON")
-        QtCore.QTimer.singleShot(50, self.input_edit.clearFocus)
-        self.output_tree.setPlaceholderText = "JSON 树（折叠/展开）" # QTreeWidget 不能直接 placeholder，可忽略或留空
-        self.output_edit.setPlaceholderText("JSON 结果")
-
-        # 三栏 splitter
+        # ====== 三栏布局 ======
+        # 左侧：原始 JSON
         left_layout = QVBoxLayout()
         left_layout.setContentsMargins(0,0,0,0)
         left_layout.setSpacing(2)
@@ -176,6 +197,7 @@ class JsonFormatterWindow(QWidget):
         left_widget = QWidget()
         left_widget.setLayout(left_layout)
 
+        # 中间：JSON 树
         middle_layout = QVBoxLayout()
         middle_layout.setContentsMargins(0,0,0,0)
         middle_layout.setSpacing(2)
@@ -183,6 +205,7 @@ class JsonFormatterWindow(QWidget):
         middle_widget = QWidget()
         middle_widget.setLayout(middle_layout)
 
+        # 右侧：JSON 结果
         right_layout = QVBoxLayout()
         right_layout.setContentsMargins(0,0,0,0)
         right_layout.setSpacing(2)
@@ -208,18 +231,21 @@ class JsonFormatterWindow(QWidget):
         btn_compress = QPushButton("压缩")
         btn_save = QPushButton("保存")
         btn_copy = QPushButton("复制结果")
+
+        # 绑定按钮事件
         btn_format.clicked.connect(self.format_json)
         btn_compress.clicked.connect(self.compress_json)
         btn_save.clicked.connect(self.save_file)
         btn_copy.clicked.connect(self.copy_result)
+
         btn_layout = QHBoxLayout()
         for btn in [btn_format, btn_compress, btn_copy, btn_save]:
             font = btn.font()
-            font.setBold(True)  # 按钮字体加粗
+            font.setBold(True)  # 按钮加粗
             btn.setFont(font)
             btn_layout.addWidget(btn)
 
-        # 主布局
+        # ====== 主布局 ======
         main_layout = QVBoxLayout()
         main_layout.setContentsMargins(2, 2, 2, 2)  # 左上右下边距，顶部/底部间距缩小
         main_layout.setSpacing(2)  # 垂直间距缩小
@@ -227,7 +253,7 @@ class JsonFormatterWindow(QWidget):
         main_layout.addWidget(splitter)
         self.setLayout(main_layout)
 
-        # 菜单栏
+        # ====== 菜单栏 ======
         menu_bar = QMenuBar()
         file_menu = QMenu("文件", self)
         menu_bar.addMenu(file_menu)
@@ -244,8 +270,10 @@ class JsonFormatterWindow(QWidget):
         about_action = help_menu.addAction("关于 JSON 格式化器")
         about_action.triggered.connect(self.show_about_dialog)
 
+        # 保存窗口引用
         JsonFormatterWindow.windows.append(self)
 
+    # ====== 自动格式化输入 JSON ======
     def auto_format_input(self):
         """
         当原始 JSON 编辑器内容变化时，自动格式化
@@ -257,13 +285,12 @@ class JsonFormatterWindow(QWidget):
             return
         try:
             data = json.loads(text)
-            # 更新树和右侧结果区域
             self.populate_tree(data)
             self.output_edit.setPlainText(json.dumps(data, indent=4, ensure_ascii=False))
         except json.JSONDecodeError:
-            # JSON 不完整或非法，不更新
-            pass
+            pass  # JSON 不完整时不报错
 
+    # ====== 新建窗口静态方法 ======
     @staticmethod
     def new_window_static():
         win = JsonFormatterWindow()
@@ -271,6 +298,9 @@ class JsonFormatterWindow(QWidget):
 
     # ====== 构建树 ======
     def populate_tree(self, data, parent=None, key_name=None):
+        """
+        将 JSON 数据转换为 QTreeWidgetItem 树形结构
+        """
         if parent is None:
             self.output_tree.clear()
             parent = self.output_tree
@@ -296,7 +326,6 @@ class JsonFormatterWindow(QWidget):
             item.setData(0, QtCore.Qt.UserRole, data)  # 存储完整数据
             for i, v in enumerate(data):
                 self.populate_tree(v, item, f"[{i}]")
-
         else:
             text = f"{key_name}: {data}" if key_name else str(data)
             item = QTreeWidgetItem([text])
@@ -307,7 +336,7 @@ class JsonFormatterWindow(QWidget):
             item.setData(0, QtCore.Qt.UserRole, (key_name, data))  # 存 key/value
             item.setChildIndicatorPolicy(QTreeWidgetItem.DontShowIndicator)
 
-    # ====== 点击树节点显示正确 JSON ======
+    # ====== 点击树节点显示对应 JSON ======
     def on_tree_item_clicked(self, item, column):
         def item_to_json(it):
             child_count = it.childCount()
@@ -336,19 +365,13 @@ class JsonFormatterWindow(QWidget):
                         result[key] = value
                     return result
 
-            try:
-                node_data = item_to_json(item)
-                self.output_edit.setPlainText(json.dumps(node_data, indent=4, ensure_ascii=False))
-            except Exception:
-                self.output_edit.setPlainText(item.text(0))
-
         try:
             node_data = item_to_json(item)
             self.output_edit.setPlainText(json.dumps(node_data, indent=4, ensure_ascii=False))
         except Exception:
             self.output_edit.setPlainText(item.text(0))
 
-    # ====== 功能实现 ======
+    # ====== 功能按钮逻辑 ======
     def format_json(self):
         text = self.input_edit.toPlainText().strip()
         if not text:
@@ -358,8 +381,7 @@ class JsonFormatterWindow(QWidget):
             self.populate_tree(data)
             self.output_edit.setPlainText(json.dumps(data, indent=4, ensure_ascii=False))
         except json.JSONDecodeError as e:
-            QMessageBox.critical(self, "格式化失败",
-                                 f"{e.msg}\n行: {e.lineno}, 列: {e.colno}")
+            QMessageBox.critical(self, "格式化失败", f"{e.msg}\n行: {e.lineno}, 列: {e.colno}")
 
     def compress_json(self):
         text = self.input_edit.toPlainText().strip()
@@ -371,8 +393,7 @@ class JsonFormatterWindow(QWidget):
             self.populate_tree(json.loads(compressed))
             self.output_edit.setPlainText(compressed)
         except json.JSONDecodeError as e:
-            QMessageBox.critical(self, "压缩失败",
-                                 f"{e.msg}\n行: {e.lineno}, 列: {e.colno}")
+            QMessageBox.critical(self, "压缩失败", f"{e.msg}\n行: {e.lineno}, 列: {e.colno}")
 
     def save_file(self):
         text = self.output_edit.toPlainText().strip()
@@ -387,18 +408,19 @@ class JsonFormatterWindow(QWidget):
                 QMessageBox.critical(self, "保存失败", str(e))
 
     def copy_result(self):
+        """
+        复制 JSON 结果到剪贴板，并显示提示
+        """
         text = self.output_edit.toPlainText()
         if text:
             QApplication.clipboard().setText(text)
-
-            # 自动消失提示
             tip = QLabel("✅ JSON结果 已复制到剪贴板", self)
             tip.setStyleSheet("""
-                background-color: #28a745;  /* 鲜绿色背景 */
-                color: white;              /* 白色文字 */
-                padding: 12px 20px;        /* 较大内边距 */
-                border-radius: 8px;        /* 圆角 */
-                font-size: 16pt;           /* 大字体 */
+                background-color: #28a745;  /* 绿色提示 */
+                color: white;              
+                padding: 12px 20px;        
+                border-radius: 8px;        
+                font-size: 16pt;           
                 font-weight: bold;
             """)
             tip.setAlignment(QtCore.Qt.AlignCenter)
@@ -407,9 +429,7 @@ class JsonFormatterWindow(QWidget):
             # 居中显示在窗口
             tip.move(self.geometry().center() - tip.rect().center())
             tip.show()
-
-            # 1.5秒后自动关闭
-            QtCore.QTimer.singleShot(800, tip.close)
+            QtCore.QTimer.singleShot(800, tip.close)  # 0.8秒自动关闭
 
     def open_file(self):
         file_name, _ = QFileDialog.getOpenFileName(self, "打开 JSON 文件", "", "JSON 文件 (*.json)")
@@ -432,7 +452,6 @@ class JsonFormatterWindow(QWidget):
         <p>支持 JSON 格式化、压缩、树形展示等功能。</p>
         <p>作者：lawliet</p>
         """
-
         msg = QMessageBox(self)
         msg.setWindowTitle("关于 JSON 格式化器")
         msg.setTextFormat(Qt.RichText)
@@ -440,6 +459,7 @@ class JsonFormatterWindow(QWidget):
         msg.setIcon(QMessageBox.Information)
         msg.setStandardButtons(QMessageBox.Ok)
         msg.exec()
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
