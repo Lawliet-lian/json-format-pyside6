@@ -182,6 +182,7 @@ class JsonFormatterWindow(QWidget):
 
         # ====== 输出文本 ======
         self.output_edit = QTextEdit()
+        self.output_edit.setPlaceholderText("JSON 结果（格式化输出）")  # ✅ 原生 placeholder
         self.output_edit.setFont(font)
         self.output_edit.setReadOnly(True)
         palette = self.output_edit.palette()
