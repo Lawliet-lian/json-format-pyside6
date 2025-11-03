@@ -487,7 +487,7 @@ class JsonFormatterWindow(QWidget):
         """
         显示关于对话框
         """
-        version = "v2.0.0"
+        version = "v2.0.1"
         info = f"""
         <h3>JSON 格式化查看器 {version}</h3>
         <p>桌面版 JSON 可视化工具。</p>
