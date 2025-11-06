@@ -6,7 +6,11 @@ from PySide6.QtWidgets import (
     QTreeWidget, QTreeWidgetItem, QMenuBar, QMenu,
     QPlainTextEdit, QTextEdit, QSplitter
 )
-from PySide6.QtGui import QFont, QColor, QPainter, QTextFormat, QPalette, QFontDatabase
+from PySide6.QtGui import (
+    QFont, QColor, QPainter, QTextFormat, QPalette,
+    QFontDatabase, QSyntaxHighlighter, QTextCharFormat, QTextCursor
+)
+
 import json
 import sys
 
@@ -183,6 +187,8 @@ class JsonFormatterWindow(QWidget):
         # ====== 输出文本 ======
         self.output_edit = QTextEdit()
         self.output_edit.setPlaceholderText("JSON 结果（格式化输出）")  # ✅ 原生 placeholder
+        # 添加 JSON 高亮器
+        self.highlighter = JsonHighlighter(self.output_edit.document())
         self.output_edit.setFont(font)
         self.output_edit.setReadOnly(True)
         palette = self.output_edit.palette()
@@ -357,8 +363,11 @@ class JsonFormatterWindow(QWidget):
             self.output_tree.clear()
             parent = self.output_tree
 
+        color = QColor("#00FF7F")
+
         if isinstance(data, dict):
             item = QTreeWidgetItem([key_name] if key_name else "")
+            item.setForeground(0, color)  # 设置文字颜色
             if parent is self.output_tree:
                 parent.addTopLevelItem(item)
             else:
@@ -370,6 +379,7 @@ class JsonFormatterWindow(QWidget):
 
         elif isinstance(data, list):
             item = QTreeWidgetItem([key_name] if key_name else "")
+            item.setForeground(0, color)  # 设置文字颜色
             if parent is self.output_tree:
                 parent.addTopLevelItem(item)
             else:
@@ -381,6 +391,7 @@ class JsonFormatterWindow(QWidget):
         else:
             text = f"{key_name}: {data}" if key_name else str(data)
             item = QTreeWidgetItem([text])
+            item.setForeground(0, color)  # 设置文字颜色
             if parent is self.output_tree:
                 parent.addTopLevelItem(item)
             else:
@@ -390,11 +401,19 @@ class JsonFormatterWindow(QWidget):
 
     # ====== 点击树节点显示对应 JSON ======
     def on_tree_item_clicked(self, item, column):
+        """
+        点击树节点时，在右侧显示对应 JSON，并高亮 key。
+        """
+
         def item_to_json(it):
+            """
+            递归从树节点生成 JSON 数据。
+            """
             child_count = it.childCount()
             # 叶子节点
             if child_count == 0:
-                data = it.data(0, QtCore.Qt.UserRole)
+                # 叶子节点直接取 UserRole 数据
+                data = it.data(0, Qt.UserRole)
                 if isinstance(data, tuple) and len(data) == 2:
                     key, value = data
                     return {key: value} if key else value
@@ -402,6 +421,7 @@ class JsonFormatterWindow(QWidget):
                     return data
             # 非叶子节点
             else:
+                # 判断是否列表节点
                 is_list = all(it.child(i).text(0).startswith('[') for i in range(child_count))
                 if is_list:
                     return [item_to_json(it.child(i)) for i in range(child_count)]
@@ -418,12 +438,14 @@ class JsonFormatterWindow(QWidget):
                     return result
 
         try:
+            # 生成 JSON 数据
             node_data = item_to_json(item)
-            self.output_edit.setPlainText(json.dumps(node_data, indent=4, ensure_ascii=False))
+            json_text = json.dumps(node_data, indent=4, ensure_ascii=False)
+            self.output_edit.setPlainText(json_text)
+
         except Exception:
+            # 万一出错就直接显示文本
             self.output_edit.setPlainText(item.text(0))
-
-
 
     def compress_json(self):
         text = self.input_edit.toPlainText().strip()
@@ -487,7 +509,7 @@ class JsonFormatterWindow(QWidget):
         """
         显示关于对话框
         """
-        version = "v2.0.1"
+        version = "v2.0.2"
         info = f"""
         <h3>JSON 格式化查看器 {version}</h3>
         <p>桌面版 JSON 可视化工具。</p>
@@ -502,6 +524,52 @@ class JsonFormatterWindow(QWidget):
         msg.setStandardButtons(QMessageBox.Ok)
         msg.exec()
 
+
+class JsonHighlighter(QSyntaxHighlighter):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+        self.formats = {
+            "key": self.make_format("#1E90FF"),                 # 键，深天蓝色
+            "string": self.make_format("#FFA500"),              # 字符串
+            "number": self.make_format("#56b6c2"),              # 数字
+            "bool": self.make_format("#e5c07b"),                # 布尔值
+            "null": self.make_format("#FF1493"),                # null
+            "highlight": self.make_format("#ffffff", bg="#4b5cc4", bold=True)  # 点击高亮
+        }
+
+    def make_format(self, color, bg=None, bold=False):
+        fmt = QTextCharFormat()
+        fmt.setForeground(QColor(color))
+        if bg:
+            fmt.setBackground(QColor(bg))
+        if bold:
+            fmt.setFontWeight(QFont.Bold)
+        return fmt
+
+    def highlightBlock(self, text):
+        import re
+
+        # ---- 1. 匹配 key ----
+        for match in re.finditer(r'"(.*?)"\s*:', text):
+            self.setFormat(match.start(1), match.end(1) - match.start(1), self.formats["key"])
+
+        # ---- 2. 匹配字符串 ----
+        # 冒号后面跟双引号里的内容，包括日期时间等
+        for match in re.finditer(r':\s*"([^"]*)"', text):
+            self.setFormat(match.start(1), match.end(1) - match.start(1), self.formats["string"])
+
+        # ---- 3. 匹配布尔值/Null ----
+        # 只匹配不在引号内的 true/false/null
+        for match in re.finditer(r':\s*(true|false|null)(?=[,\}\]])', text):
+            val = match.group(1)
+            fmt = self.formats["null"] if val == "null" else self.formats["bool"]
+            self.setFormat(match.start(1), match.end(1) - match.start(1), fmt)
+
+        # ---- 4. 匹配数字 ----
+        # 只匹配冒号后跟的纯数字，不匹配带空格或在字符串内的数字
+        for match in re.finditer(r':\s*(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)(?=[,\}\]])', text):
+            self.setFormat(match.start(1), match.end(1) - match.start(1), self.formats["number"])
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
