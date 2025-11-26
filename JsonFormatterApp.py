@@ -242,12 +242,13 @@ class JsonFormatterWindow(QWidget):
         splitter.addWidget(middle_widget)
         splitter.addWidget(right_widget)
 
-        # 设置初始宽度比例：原始 JSON 1/5，JSON 树 2/5，JSON 结果 2/5
+        middle_widget.setMinimumWidth(0)  # 允许中间结果树最小宽度为 0
+        # 设置初始宽度比例：原始 JSON 3/6，JSON 树 0/6，JSON 结果 3/3
         total_width = self.width() if self.width() > 0 else 1200 # 默认宽度
         splitter.setSizes([
-            int(total_width * 1 / 3),  # 原始 JSON
-            int(total_width * 1 / 3),  # JSON 树
-            int(total_width * 1 / 3)  # JSON 结果
+            int(total_width * 3 / 6),  # 原始 JSON
+            int(total_width * 0 / 6),  # JSON 树
+            int(total_width * 3 / 6)  # JSON 结果
         ])
 
         # 按钮
@@ -557,7 +558,7 @@ class JsonFormatterWindow(QWidget):
         """
         显示关于对话框
         """
-        version = "v2.0.3"
+        version = "v2.0.4"
         info = f"""
         <h3>JSON 格式化查看器 {version}</h3>
         <p>桌面版 JSON 可视化工具。</p>
