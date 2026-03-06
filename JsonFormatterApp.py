@@ -200,6 +200,9 @@ class JsonFormatterWindow(QWidget):
         self.output_tree.setHeaderHidden(True)
         self.output_tree.setFont(font)
         self.output_tree.itemClicked.connect(self.on_tree_item_clicked)
+        # 添加右键菜单
+        self.output_tree.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.output_tree.customContextMenuRequested.connect(self.open_tree_context_menu)
 
         # ====== 输出文本 ======
         self.output_edit = QTextEdit()
@@ -486,6 +489,84 @@ class JsonFormatterWindow(QWidget):
             # 万一出错就直接显示文本
             self.output_edit.setPlainText(item.text(0))
             self.highlighter.rehighlight()
+
+    # ====== 右键菜单 ======
+    def open_tree_context_menu(self, position):
+        """
+        显示树形控件的右键菜单
+        """
+        menu = QMenu()
+        
+        # 获取当前选中的节点
+        item = self.output_tree.itemAt(position)
+        
+        # 只有选中节点时才显示相关选项
+        if item:
+            expand_action = menu.addAction("展开此节点")
+            expand_action.triggered.connect(lambda: item.setExpanded(True))
+            
+            collapse_action = menu.addAction("折叠此节点")
+            collapse_action.triggered.connect(lambda: item.setExpanded(False))
+            
+            menu.addSeparator()
+            
+            expand_recursive_action = menu.addAction("递归展开此节点")
+            expand_recursive_action.triggered.connect(lambda: self.expand_recursive(item))
+            
+            collapse_recursive_action = menu.addAction("递归折叠此节点")
+            collapse_recursive_action.triggered.connect(lambda: self.collapse_recursive(item))
+            
+            menu.addSeparator()
+            
+            collapse_others_action = menu.addAction("折叠其他同级节点")
+            collapse_others_action.triggered.connect(lambda: self.collapse_others(item))
+            
+            menu.addSeparator()
+
+        # 全局选项
+        expand_all_action = menu.addAction("展开全部")
+        expand_all_action.triggered.connect(self.output_tree.expandAll)
+        
+        collapse_all_action = menu.addAction("折叠全部")
+        collapse_all_action.triggered.connect(self.output_tree.collapseAll)
+        
+        menu.exec(self.output_tree.viewport().mapToGlobal(position))
+
+    def expand_recursive(self, item):
+        """递归展开节点"""
+        self.output_tree.expandItem(item)
+        for i in range(item.childCount()):
+            self.expand_recursive(item.child(i))
+
+    def collapse_recursive(self, item):
+        """递归折叠节点"""
+        self.output_tree.collapseItem(item)
+        for i in range(item.childCount()):
+            self.collapse_recursive(item.child(i))
+
+    def collapse_others(self, target_item):
+        """
+        折叠除了目标节点路径之外的所有节点
+        """
+        # 1. 获取目标节点的所有祖先（包括自己）
+        ancestors = set()
+        current = target_item
+        while current:
+            ancestors.add(current)
+            current = current.parent()
+
+        # 2. 遍历并折叠
+        # 最简单的方法：先折叠全部，再展开路径
+        self.output_tree.collapseAll()
+
+        # 展开路径上的节点
+        current = target_item
+        while current:
+            current.setExpanded(True)
+            current = current.parent()
+
+        # 确保目标节点本身是展开的（根据需求，用户可能想看该层级内容）
+        target_item.setExpanded(True)
 
     def compress_json(self):
         """
