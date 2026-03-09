@@ -40,9 +40,9 @@ THEMES = {
         "highlight": {
             "key": "#D500F9",       # 鲜艳紫
             "string": "#00C853",    # 鲜艳绿
-            "number": "#FF1744",    # 鲜艳红
-            "bool": "#2979FF",      # 鲜艳蓝
-            "null": "#FF6D00",      # 鲜艳橙
+            "number": "#FF0000",    # 红色
+            "bool": "#FF1493",      # 深粉
+            "null": "#FFD700",      # 金色
             "highlight_bg": "#4b5cc4",
             "highlight_fg": "#ffffff",
             "search_match": "#00FF00",
@@ -74,9 +74,9 @@ THEMES = {
         "highlight": {
             "key": "#40C4FF",       # 亮青
             "string": "#69F0AE",    # 荧光绿
-            "number": "#FF5252",    # 荧光红
-            "bool": "#E040FB",      # 荧光紫
-            "null": "#FFD740",      # 荧光黄
+            "number": "#FF8C00",    # 深橙色
+            "bool": "#FF1493",      # 鲜艳粉
+            "null": "#FF1744",      # 鲜艳红
             "highlight_bg": "#264f78",
             "highlight_fg": "#ffffff",
             "search_match": "#6A7B50",
