@@ -4,7 +4,8 @@ from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QFileDialog, QMessageBox, QLabel,
     QTreeWidget, QTreeWidgetItem, QMenuBar, QMenu,
-    QPlainTextEdit, QTextEdit, QSplitter, QLineEdit
+    QPlainTextEdit, QTextEdit, QSplitter, QLineEdit,
+    QToolButton, QSizePolicy, QTreeWidgetItemIterator
 )
 from PySide6.QtGui import (
     QFont, QColor, QPainter, QTextFormat, QPalette,
@@ -14,6 +15,78 @@ from PySide6.QtGui import (
 
 import json
 import sys
+
+# ====== 主题配置 ======
+THEMES = {
+    "light": {
+        "window_bg": "#FFFFFF",
+        "text_color": "#000000",
+        "input_bg": "#FFFFFF",
+        "tree_bg": "#FFFFFF",
+        "output_bg": "#FFFFFF",
+        "header_bg": "#f0f0f0",
+        "header_border": "#dcdcdc",
+        "header_text": "#000000",
+        "btn_bg": "transparent",
+        "btn_hover": "#e0e0e0",
+        "btn_text": "#000000",
+        "splitter_handle": "#dcdcdc",
+        "placeholder": "#969696",
+        "line_num_bg": "#f0f0f0",
+        "line_num_text": "#808080",
+        "current_line": "#e8e8e8",
+        "selection_bg": "#a5d6a7",
+        "border_color": "#dcdcdc",
+        "highlight": {
+            "key": "#D500F9",       # 鲜艳紫
+            "string": "#00C853",    # 鲜艳绿
+            "number": "#FF1744",    # 鲜艳红
+            "bool": "#2979FF",      # 鲜艳蓝
+            "null": "#FF6D00",      # 鲜艳橙
+            "highlight_bg": "#4b5cc4",
+            "highlight_fg": "#ffffff",
+            "search_match": "#00FF00",
+            "search_current": "#008000"
+        },
+        "scrollbar_handle": "#c1c1c1",
+        "scrollbar_handle_hover": "#a8a8a8",
+        "scrollbar_bg": "#f0f0f0"
+    },
+    "dark": {
+        "window_bg": "#2b2b2b",
+        "text_color": "#dcdcdc",
+        "input_bg": "#1e1e1e",
+        "tree_bg": "#1e1e1e",
+        "output_bg": "#1e1e1e",
+        "header_bg": "#333333",
+        "header_border": "#444444",
+        "header_text": "#dcdcdc",
+        "btn_bg": "transparent",
+        "btn_hover": "#444444",
+        "btn_text": "#dcdcdc",
+        "splitter_handle": "#444444",
+        "placeholder": "#666666",
+        "line_num_bg": "#2d2d2d",
+        "line_num_text": "#858585",
+        "current_line": "#2d2d30",
+        "selection_bg": "#264f78",
+        "border_color": "#3e3e42",
+        "highlight": {
+            "key": "#40C4FF",       # 亮青
+            "string": "#69F0AE",    # 荧光绿
+            "number": "#FF5252",    # 荧光红
+            "bool": "#E040FB",      # 荧光紫
+            "null": "#FFD740",      # 荧光黄
+            "highlight_bg": "#264f78",
+            "highlight_fg": "#ffffff",
+            "search_match": "#6A7B50",
+            "search_current": "#365535"
+        },
+        "scrollbar_handle": "#424242",
+        "scrollbar_handle_hover": "#4f4f4f",
+        "scrollbar_bg": "#2d2d2d"
+    }
+}
 
 # ====== 行号编辑器 ======
 class LineNumberArea(QWidget):
@@ -42,6 +115,7 @@ class CodeEditor(QPlainTextEdit):
     def __init__(self, placeholder=""):
         super().__init__()
         self.placeholder = placeholder
+        self.theme = THEMES["light"]  # 默认主题
         self.textChanged.connect(self.update)  # 内容变化时刷新 placeholder
         self.lineNumberArea = LineNumberArea(self)
 
@@ -54,14 +128,22 @@ class CodeEditor(QPlainTextEdit):
         self.highlight_current_line()
         self.setLineWrapMode(QPlainTextEdit.NoWrap)  # 不自动换行
 
-        # 设置暗色背景和字体颜色
-        # self.setStyleSheet("""
-        # QPlainTextEdit {
-        #     background-color: #2b2b2b;
-        #     color: #f8f8f2;
-        #     selection-background-color: #555555;
-        # }
-        # """)
+    def set_theme(self, theme_config):
+        self.theme = theme_config
+        self.highlight_current_line()
+        self.update()  # 触发重绘（包括 placeholder）
+        self.lineNumberArea.update() # 触发重绘行号
+        
+        # 更新自身样式
+        self.setStyleSheet(f"""
+            QPlainTextEdit {{
+                background-color: {self.theme['input_bg']};
+                color: {self.theme['text_color']};
+                selection-background-color: {self.theme['selection_bg']};
+                border: 1px solid {self.theme['border_color']};
+                border-radius: 4px;
+            }}
+        """)
 
     # ====== 行号宽度计算 ======
     def line_number_area_width(self):
@@ -93,15 +175,22 @@ class CodeEditor(QPlainTextEdit):
     # ====== 绘制行号 ======
     def line_number_area_paint_event(self, event):
         painter = QPainter(self.lineNumberArea)
-        painter.fillRect(event.rect(), QColor(40, 40, 40))  # 背景
+        # 背景色
+        bg_color = QColor(self.theme["line_num_bg"])
+        painter.fillRect(event.rect(), bg_color)
+        
         block = self.firstVisibleBlock()
         blockNumber = block.blockNumber()
         top = round(self.blockBoundingGeometry(block).translated(self.contentOffset()).top())
         bottom = top + round(self.blockBoundingRect(block).height())
+        
+        # 行号文字颜色
+        text_color = QColor(self.theme["line_num_text"])
+        painter.setPen(text_color)
+        
         while block.isValid() and top <= event.rect().bottom():
             if block.isVisible() and bottom >= event.rect().top():
                 number = str(blockNumber + 1)
-                painter.setPen(QColor(200, 200, 200))
                 painter.drawText(0, top, self.lineNumberArea.width() - 2, self.fontMetrics().height(),
                                  QtCore.Qt.AlignRight, number)
             block = block.next()
@@ -114,7 +203,8 @@ class CodeEditor(QPlainTextEdit):
         extraSelections = []
         if not self.isReadOnly():
             selection = QTextEdit.ExtraSelection()
-            lineColor = QColor(60, 60, 60)  # 当前行背景色
+            # 当前行背景色
+            lineColor = QColor(self.theme["current_line"])
             selection.format.setBackground(lineColor)
             selection.format.setProperty(QTextFormat.FullWidthSelection, True)
             selection.cursor = self.textCursor()
@@ -127,7 +217,8 @@ class CodeEditor(QPlainTextEdit):
         super().paintEvent(event)
         if not self.toPlainText() and self.placeholder:
             painter = QPainter(self.viewport())
-            painter.setPen(QColor(150, 150, 150))  # 灰色文字
+            # placeholder 颜色
+            painter.setPen(QColor(self.theme["placeholder"]))
             painter.drawText(self.viewport().rect().adjusted(4, 4, -4, -4),
                              Qt.AlignTop | Qt.AlignLeft,
                              self.placeholder)
@@ -157,19 +248,158 @@ class PlaceholderTreeWidget(QTreeWidget):
     def __init__(self, placeholder="", *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.placeholder = placeholder
+        self.theme = THEMES["light"]
         # 数据变化时刷新绘制 placeholder
-        self.model().rowsInserted.connect(self.update)
-        self.model().rowsRemoved.connect(self.update)
-        self.model().modelReset.connect(self.update)
+        self.model().rowsInserted.connect(self.refresh_placeholder)
+        self.model().rowsRemoved.connect(self.refresh_placeholder)
+        self.model().modelReset.connect(self.refresh_placeholder)
+
+    def refresh_placeholder(self, *args):
+        """刷新 placeholder 显示"""
+        self.viewport().update()
+
+    def set_theme(self, theme_config):
+        self.theme = theme_config
+        self.setStyleSheet(f"""
+            QTreeWidget {{
+                background-color: {self.theme['tree_bg']};
+                color: {self.theme['text_color']};
+                border: 1px solid {self.theme['border_color']};
+                border-radius: 4px;
+            }}
+            QHeaderView::section {{
+                background-color: {self.theme['header_bg']};
+                color: {self.theme['header_text']};
+                border: 1px solid {self.theme['header_border']};
+            }}
+        """)
+        self.viewport().update()
 
     def paintEvent(self, event):
         super().paintEvent(event)
         if self.topLevelItemCount() == 0 and self.placeholder:
             painter = QPainter(self.viewport())
-            painter.setPen(QColor(150, 150, 150))  # 灰色文字
+            # placeholder 颜色
+            painter.setPen(QColor(self.theme["placeholder"]))
             painter.drawText(self.viewport().rect().adjusted(4, 4, -4, -4),
                              Qt.AlignTop | Qt.AlignLeft,
                              self.placeholder)
+
+# ====== 可折叠面板 ======
+class CollapsiblePanel(QWidget):
+    """
+    包含标题栏和折叠按钮的容器组件
+    """
+    def __init__(self, title="", content_widget=None, expanded_text="❮", collapsed_text="❯", parent=None):
+        super().__init__(parent)
+        self.content_widget = content_widget
+        self.is_expanded = True
+        self.expanded_text = expanded_text
+        self.collapsed_text = collapsed_text
+        self.theme = THEMES["light"]
+        
+        # 主布局
+        self.main_layout = QVBoxLayout()
+        self.main_layout.setContentsMargins(0, 0, 0, 0)
+        self.main_layout.setSpacing(0)
+        self.setLayout(self.main_layout)
+        
+        # 标题栏
+        self.header = QWidget()
+        self.header.setFixedHeight(26) # 缩小高度
+        
+        self.header_layout = QHBoxLayout()
+        self.header_layout.setContentsMargins(0, 0, 0, 0) # 0边距，极致压缩
+        self.header_layout.setSpacing(0)
+        self.header.setLayout(self.header_layout)
+        
+        # 标题文本
+        self.title_label = QLabel(title)
+        self.title_label.setContentsMargins(5, 0, 0, 0) # 标题左边距
+        font = self.title_label.font()
+        font.setBold(True)
+        font.setPointSize(12) # 稍微减小字体
+        self.title_label.setFont(font)
+        
+        # 折叠/展开按钮
+        self.toggle_btn = QToolButton()
+        self.toggle_btn.setText(self.expanded_text)
+        self.toggle_btn.setFixedSize(16, 26) # 宽度极窄，高度填满header
+        font = self.toggle_btn.font()
+        font.setPointSize(10) # 缩小箭头符号
+        self.toggle_btn.setFont(font)
+        self.toggle_btn.setCheckable(True)
+        self.toggle_btn.setChecked(True)
+        self.toggle_btn.setCursor(Qt.PointingHandCursor) # 鼠标手型
+        self.toggle_btn.clicked.connect(self.toggle)
+        
+        self.header_layout.addWidget(self.title_label)
+        self.header_layout.addStretch()
+        self.header_layout.addWidget(self.toggle_btn)
+        
+        self.main_layout.addWidget(self.header)
+        
+        if self.content_widget:
+            self.main_layout.addWidget(self.content_widget)
+
+    def set_theme(self, theme_config):
+        self.theme = theme_config
+        self.header.setStyleSheet(f"""
+            QWidget {{
+                background-color: {self.theme['header_bg']}; 
+                border-bottom: 1px solid {self.theme['header_border']};
+            }}
+        """)
+        self.title_label.setStyleSheet(f"color: {self.theme['header_text']}; border: none;")
+        
+        self.toggle_btn.setStyleSheet(f"""
+            QToolButton {{ 
+                border: none; 
+                background: transparent; 
+                color: {self.theme['btn_text']};
+                font-weight: bold; 
+            }}
+            QToolButton:hover {{ 
+                background-color: {self.theme['btn_hover']}; 
+                border-radius: 3px; 
+            }}
+        """)
+
+    def toggle(self):
+        self.set_expanded(not self.is_expanded)
+
+    def set_expanded(self, expanded):
+        self.is_expanded = expanded
+        self.toggle_btn.setChecked(expanded)
+        
+        if self.is_expanded:
+            if self.content_widget:
+                self.content_widget.show()
+            self.title_label.show()
+            self.setMaximumWidth(16777215) # QWIDGETSIZE_MAX
+            self.toggle_btn.setText(self.expanded_text)
+            self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+            # 恢复 header 样式
+            self.header.setStyleSheet(f"""
+                QWidget {{
+                    background-color: {self.theme['header_bg']}; 
+                    border-bottom: 1px solid {self.theme['header_border']};
+                }}
+            """)
+        else:
+            if self.content_widget:
+                self.content_widget.hide()
+            self.title_label.hide()
+            self.setMaximumWidth(16) # 收缩后的宽度，极致压缩
+            self.toggle_btn.setText(self.collapsed_text)
+            self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
+            # 收缩时隐藏 header 背景，使其看起来更像一条线
+            self.header.setStyleSheet(f"""
+                QWidget {{
+                    background-color: {self.theme['header_bg']}; 
+                    border-bottom: none;
+                }}
+            """)
 
 
 # ====== JSON 格式化窗口 ======
@@ -217,57 +447,43 @@ class JsonFormatterWindow(QWidget):
 
         # ====== 三栏布局 ======
         # 左侧：原始 JSON
-        left_layout = QVBoxLayout()
-        left_layout.setContentsMargins(0,0,0,0)
-        left_layout.setSpacing(2)
-        left_layout.addWidget(self.input_edit)
-        left_widget = QWidget()
-        left_widget.setLayout(left_layout)
-
+        self.left_panel = CollapsiblePanel("原始 JSON", self.input_edit, expanded_text="❮", collapsed_text="❯")
+        
         # 中间：JSON 树
-        middle_layout = QVBoxLayout()
-        middle_layout.setContentsMargins(0,0,0,0)
-        middle_layout.setSpacing(2)
-        middle_layout.addWidget(self.output_tree)
-        middle_widget = QWidget()
-        middle_widget.setLayout(middle_layout)
+        self.middle_panel = CollapsiblePanel("JSON 树", self.output_tree, expanded_text="❯", collapsed_text="❮")
+        # 默认收缩中间树
+        self.middle_panel.set_expanded(False)
 
         # 右侧：JSON 结果
-        right_layout = QVBoxLayout()
-        right_layout.setContentsMargins(0,0,0,0)
-        right_layout.setSpacing(2)
-        right_layout.addWidget(self.output_edit)
-        right_widget = QWidget()
-        right_widget.setLayout(right_layout)
+        self.right_panel = CollapsiblePanel("JSON 结果", self.output_edit, expanded_text="❯", collapsed_text="❮")
 
-        splitter = QSplitter()
-        splitter.addWidget(left_widget)
-        splitter.addWidget(middle_widget)
-        splitter.addWidget(right_widget)
+        self.splitter = QSplitter()
+        self.splitter.addWidget(self.left_panel)
+        self.splitter.addWidget(self.middle_panel)
+        self.splitter.addWidget(self.right_panel)
 
-        middle_widget.setMinimumWidth(0)  # 允许中间结果树最小宽度为 0
-        # 设置初始宽度比例：原始 JSON 3/6，JSON 树 0/6，JSON 结果 3/3
+        # 设置初始宽度比例：原始 JSON 1/2，JSON 树 16 (收缩状态)，JSON 结果 1/2
         total_width = self.width() if self.width() > 0 else 1200 # 默认宽度
-        splitter.setSizes([
-            int(total_width * 3 / 6),  # 原始 JSON
-            int(total_width * 0 / 6),  # JSON 树
-            int(total_width * 3 / 6)  # JSON 结果
+        self.splitter.setSizes([
+            int(total_width * 1 / 2),  # 原始 JSON
+            16,                        # JSON 树 (因为收缩了，给个极小宽度)
+            int(total_width * 1 / 2)   # JSON 结果
         ])
 
         # 按钮
-        btn_format = QPushButton("格式化")
-        btn_compress = QPushButton("压缩")
-        btn_save = QPushButton("保存")
-        btn_copy = QPushButton("复制结果")
+        self.btn_format = QPushButton("格式化")
+        self.btn_compress = QPushButton("压缩")
+        self.btn_save = QPushButton("保存")
+        self.btn_copy = QPushButton("复制结果")
 
         # 绑定按钮事件
-        btn_format.clicked.connect(self.format_json)
-        btn_compress.clicked.connect(self.compress_json)
-        btn_save.clicked.connect(self.save_file)
-        btn_copy.clicked.connect(self.copy_result)
+        self.btn_format.clicked.connect(self.format_json)
+        self.btn_compress.clicked.connect(self.compress_json)
+        self.btn_save.clicked.connect(self.save_file)
+        self.btn_copy.clicked.connect(self.copy_result)
 
         btn_layout = QHBoxLayout()
-        for btn in [btn_format, btn_compress, btn_copy, btn_save]:
+        for btn in [self.btn_format, self.btn_compress, self.btn_copy, self.btn_save]:
             font = btn.font()
             font.setBold(True)  # 按钮加粗
             btn.setFont(font)
@@ -278,7 +494,7 @@ class JsonFormatterWindow(QWidget):
         main_layout.setContentsMargins(2, 2, 2, 2)  # 左上右下边距，顶部/底部间距缩小
         main_layout.setSpacing(2)  # 垂直间距缩小
         main_layout.addLayout(btn_layout)
-        main_layout.addWidget(splitter)
+        main_layout.addWidget(self.splitter)
         self.setLayout(main_layout)
 
         # ====== 菜单栏 ======
@@ -289,6 +505,28 @@ class JsonFormatterWindow(QWidget):
         new_action.triggered.connect(JsonFormatterWindow.new_window_static)
         open_action = file_menu.addAction("打开 JSON 文件")
         open_action.triggered.connect(self.open_file)
+        
+        # 视图菜单 - 主题切换
+        view_menu = QMenu("视图", self)
+        menu_bar.addMenu(view_menu)
+        
+        self.theme_menu = QMenu("主题", self)
+        view_menu.addMenu(self.theme_menu)
+        
+        self.action_auto = self.theme_menu.addAction("跟随系统")
+        self.action_light = self.theme_menu.addAction("明亮模式")
+        self.action_dark = self.theme_menu.addAction("暗黑模式")
+        
+        self.action_auto.setCheckable(True)
+        self.action_light.setCheckable(True)
+        self.action_dark.setCheckable(True)
+        
+        self.action_auto.setChecked(True) # 默认跟随系统
+        
+        self.action_auto.triggered.connect(lambda: self.switch_theme_mode("auto"))
+        self.action_light.triggered.connect(lambda: self.switch_theme_mode("light"))
+        self.action_dark.triggered.connect(lambda: self.switch_theme_mode("dark"))
+        
         main_layout.setMenuBar(menu_bar)
 
         # 新增帮助菜单
@@ -314,6 +552,176 @@ class JsonFormatterWindow(QWidget):
 
         # 保存窗口引用
         JsonFormatterWindow.windows.append(self)
+        
+        # 初始化主题
+        self.current_theme_mode = "auto"
+        self._is_applying_theme = False
+        self.apply_theme()
+
+    def switch_theme_mode(self, mode):
+        self.current_theme_mode = mode
+        
+        # 更新菜单选中状态
+        self.action_auto.setChecked(mode == "auto")
+        self.action_light.setChecked(mode == "light")
+        self.action_dark.setChecked(mode == "dark")
+        
+        self.apply_theme()
+
+    def detect_system_theme(self):
+        """
+        检测系统主题
+        返回 "dark" 或 "light"
+        """
+        # 简单检测：通过窗口背景色亮度判断
+        # 注意：在某些系统上这可能不准确，但在 PySide6 中通常有效
+        palette = QApplication.palette()
+        bg_color = palette.color(QPalette.Window)
+        # 计算亮度 (YIQ formula)
+        brightness = (bg_color.red() * 299 + bg_color.green() * 587 + bg_color.blue() * 114) / 1000
+        return "dark" if brightness < 128 else "light"
+
+    def changeEvent(self, event):
+        """
+        监听系统主题变化
+        """
+        if event.type() == QtCore.QEvent.PaletteChange:
+            if self.current_theme_mode == "auto" and not self._is_applying_theme:
+                # 只有当不在应用主题时才尝试重新应用
+                self.apply_theme()
+        super().changeEvent(event)
+
+    def apply_theme(self):
+        """
+        应用当前主题
+        """
+        if self._is_applying_theme:
+            return
+            
+        self._is_applying_theme = True
+        try:
+            mode = self.current_theme_mode
+            if mode == "auto":
+                mode = self.detect_system_theme()
+                
+            theme = THEMES.get(mode, THEMES["light"])
+            self.current_theme_data = theme # 保存当前主题数据供其他地方使用
+            
+            # 1. 设置窗口背景
+            # 全局滚动条样式
+            scrollbar_style = f"""
+                QScrollBar:vertical {{
+                    border: none;
+                    background: {theme.get('scrollbar_bg', '#f0f0f0')};
+                    width: 12px;
+                    margin: 0px 0px 0px 0px;
+                }}
+                QScrollBar::handle:vertical {{
+                    background: {theme.get('scrollbar_handle', '#c1c1c1')};
+                    min-height: 20px;
+                    border-radius: 6px;
+                    margin: 2px;
+                }}
+                QScrollBar::handle:vertical:hover {{
+                    background: {theme.get('scrollbar_handle_hover', '#a8a8a8')};
+                }}
+                QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+                    border: none;
+                    background: none;
+                    height: 0px;
+                }}
+                QScrollBar:horizontal {{
+                    border: none;
+                    background: {theme.get('scrollbar_bg', '#f0f0f0')};
+                    height: 12px;
+                    margin: 0px 0px 0px 0px;
+                }}
+                QScrollBar::handle:horizontal {{
+                    background: {theme.get('scrollbar_handle', '#c1c1c1')};
+                    min-width: 20px;
+                    border-radius: 6px;
+                    margin: 2px;
+                }}
+                QScrollBar::handle:horizontal:hover {{
+                    background: {theme.get('scrollbar_handle_hover', '#a8a8a8')};
+                }}
+                QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
+                    border: none;
+                    background: none;
+                    width: 0px;
+                }}
+            """
+            
+            self.setStyleSheet(f"background-color: {theme['window_bg']}; color: {theme['text_color']}; {scrollbar_style}")
+            
+            # 2. 设置输入框主题
+            self.input_edit.set_theme(theme)
+            
+            # 3. 设置树控件主题
+            self.output_tree.set_theme(theme)
+            
+            # 4. 设置输出框主题
+            # 输出框是普通 QTextEdit，手动设置样式
+            self.output_edit.setStyleSheet(f"""
+                QTextEdit {{
+                    background-color: {theme['output_bg']};
+                    color: {theme['text_color']};
+                    border: 1px solid {theme['border_color']};
+                    border-radius: 4px;
+                }}
+            """)
+            # 更新 placeholder 颜色
+            palette = self.output_edit.palette()
+            palette.setColor(QPalette.PlaceholderText, QColor(theme['placeholder']))
+            self.output_edit.setPalette(palette)
+            
+            # 更新高亮器颜色
+            self.highlighter.set_theme(theme)
+            
+            # 5. 设置可折叠面板主题
+            self.left_panel.set_theme(theme)
+            self.middle_panel.set_theme(theme)
+            self.right_panel.set_theme(theme)
+            
+            # 6. 设置 Splitter Handle 颜色
+            handle_color = theme['splitter_handle']
+            handle_hover = theme.get('btn_hover', '#cccccc')
+            self.splitter.setStyleSheet(f"""
+                QSplitter::handle {{
+                    background-color: {handle_color};
+                    border: 1px solid transparent;
+                }}
+                QSplitter::handle:hover {{
+                    background-color: {handle_hover};
+                }}
+                QSplitter::handle:pressed {{
+                    background-color: {theme['header_border']};
+                }}
+            """)
+            
+            # 8. 更新搜索面板主题
+            for panel in self.search_panels.values():
+                panel.set_theme(theme)
+            
+            # 7. 更新按钮样式
+            for btn in [self.btn_format, self.btn_compress, self.btn_save, self.btn_copy]:
+                btn.setStyleSheet(f"""
+                    QPushButton {{
+                        background-color: {theme['input_bg']};
+                        color: {theme['text_color']};
+                        border: 1px solid {theme['border_color']};
+                        border-radius: 4px;
+                        padding: 5px 15px;
+                    }}
+                    QPushButton:hover {{
+                        background-color: {theme['btn_hover']};
+                    }}
+                    QPushButton:pressed {{
+                        background-color: {theme['header_border']};
+                    }}
+                """)
+        finally:
+            self._is_applying_theme = False
 
     # ====== 核心 JSON 处理逻辑 ======
     def process_json(self, text: str, show_error_dialog=True):
@@ -689,14 +1097,23 @@ class JsonFormatterWindow(QWidget):
 class JsonHighlighter(QSyntaxHighlighter):
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.theme = THEMES["light"]
+        self.update_formats()
 
+    def set_theme(self, theme_config):
+        self.theme = theme_config
+        self.update_formats()
+        self.rehighlight()
+
+    def update_formats(self):
+        colors = self.theme["highlight"]
         self.formats = {
-            "key": self.make_format("#1E90FF"),                 # 键，深天蓝色
-            "string": self.make_format("#FFA500"),              # 字符串
-            "number": self.make_format("#56b6c2"),              # 数字
-            "bool": self.make_format("#e5c07b"),                # 布尔值
-            "null": self.make_format("#FF1493"),                # null
-            "highlight": self.make_format("#ffffff", bg="#4b5cc4", bold=True)  # 点击高亮
+            "key": self.make_format(colors["key"]),
+            "string": self.make_format(colors["string"]),
+            "number": self.make_format(colors["number"]),
+            "bool": self.make_format(colors["bool"]),
+            "null": self.make_format(colors["null"]),
+            "highlight": self.make_format(colors["highlight_fg"], bg=colors["highlight_bg"], bold=True)
         }
 
     def make_format(self, color, bg=None, bold=False):
@@ -742,6 +1159,7 @@ class SearchPanel(QWidget):
         self.parent = parent
         self.editor = editor
         self.setFixedWidth(320)
+        self.theme = THEMES["light"]
 
         # 布局
         layout = QHBoxLayout(self)
@@ -774,6 +1192,41 @@ class SearchPanel(QWidget):
         self.search_edit.returnPressed.connect(self.next_match)
         self.btn_next.clicked.connect(self.next_match)
         self.btn_prev.clicked.connect(self.prev_match)
+
+    def set_theme(self, theme_config):
+        self.theme = theme_config
+        # 设置面板样式
+        self.setStyleSheet(f"""
+            SearchPanel {{
+                background-color: {self.theme['header_bg']};
+                border: 1px solid {self.theme['header_border']};
+                border-radius: 4px;
+            }}
+            QLabel {{
+                color: {self.theme['text_color']};
+            }}
+            QLineEdit {{
+                background-color: {self.theme['input_bg']};
+                color: {self.theme['text_color']};
+                border: 1px solid {self.theme['border_color']};
+                border-radius: 2px;
+                padding: 2px;
+            }}
+            QPushButton {{
+                background-color: {self.theme['btn_bg']};
+                color: {self.theme['btn_text']};
+                border: none;
+                border-radius: 2px;
+                padding: 2px 8px;
+            }}
+            QPushButton:hover {{
+                background-color: {self.theme['btn_hover']};
+            }}
+        """)
+        
+        # 重新触发搜索高亮以更新颜色
+        if self.search_edit.text():
+            self.highlight_search(self.search_edit.text())
 
     def reposition(self):
         from PySide6.QtCore import QPoint
@@ -862,7 +1315,7 @@ class SearchPanel(QWidget):
             sel = QTextEdit.ExtraSelection()
             sel.cursor = QTextCursor(cursor_iter)  # <-- 显式拷贝
             fmt_all = QTextCharFormat()
-            fmt_all.setBackground(QColor("#00FF00"))  # 普通匹配背景（绿色）
+            fmt_all.setBackground(QColor(self.theme['highlight']['search_match']))  # 主题色
             sel.format = fmt_all
             extra.append(sel)
 
@@ -874,8 +1327,8 @@ class SearchPanel(QWidget):
         line_sel = QTextEdit.ExtraSelection()
         line_sel.cursor = QTextCursor(line_cursor)  # 空选区的独立 cursor
         line_fmt = line_sel.format
-        # 这就是 VSCode 风格的整行浅蓝（可调整透明度）
-        line_fmt.setBackground(QColor(204, 232, 255, 51))  # "#CCE8FF33" 等价
+        # 使用主题中的当前行颜色
+        line_fmt.setBackground(QColor(self.theme['current_line']))  
         line_fmt.setProperty(QTextFormat.FullWidthSelection, True)
         line_sel.format = line_fmt
         # 将整行高亮放到 extra 的最前面（视觉上与关键字红色叠加良好）
@@ -888,8 +1341,8 @@ class SearchPanel(QWidget):
         sel_cur = QTextEdit.ExtraSelection()
         sel_cur.cursor = QTextCursor(cur)  # <-- 拷贝
         fmt = QTextCharFormat()
-        fmt.setBackground(QColor("#FF0000"))  # 当前匹配红色背景（关键词区域）
-        fmt.setForeground(QColor("#FFFFFF"))  # 白字
+        fmt.setBackground(QColor(self.theme['highlight']['search_current']))  # 主题色
+        fmt.setForeground(QColor(self.theme['highlight']['highlight_fg']))  # 主题色
         fmt.setFontWeight(QFont.Bold)
         # 不要把 FullWidthSelection 设置成 True —— 否则会覆盖整行蓝色
         sel_cur.format = fmt
@@ -906,7 +1359,9 @@ class SearchPanel(QWidget):
 
         # 强制刷新（确保视觉更新）
         self.editor.viewport().update()
-        self.parent.highlighter.rehighlight()
+        # 尝试调用 parent 的 highlighter 刷新，如果有的话
+        if hasattr(self.parent, 'highlighter'):
+            self.parent.highlighter.rehighlight()
         self.update_label()
 
     def next_match(self):
@@ -922,9 +1377,9 @@ class SearchPanel(QWidget):
     def highlight_search(self, keyword, current_pos=None):
         """
         高亮搜索：
-          - 所有匹配：绿色背景
-          - 当前匹配：红色背景 + 白字
-          - 当前行整行：浅蓝色背景
+          - 所有匹配：主题配置 search_match
+          - 当前匹配：主题配置 search_current
+          - 当前行整行：主题配置 current_line
         """
         extra = []
 
@@ -938,7 +1393,7 @@ class SearchPanel(QWidget):
         doc = self.editor.document()
         cursor = QTextCursor(doc)
 
-        # 全部匹配（绿色背景）
+        # 全部匹配
         while True:
             cursor = doc.find(keyword, cursor)
             if cursor.isNull():
@@ -946,7 +1401,7 @@ class SearchPanel(QWidget):
             sel = QTextEdit.ExtraSelection()
             sel.cursor = QTextCursor(cursor)
             fmt_all = QTextCharFormat()
-            fmt_all.setBackground(QColor("#00FF00"))  # 绿色背景
+            fmt_all.setBackground(QColor(self.theme['highlight']['search_match']))
             sel.format = fmt_all
             extra.append(sel)
 
@@ -958,7 +1413,7 @@ class SearchPanel(QWidget):
             line_sel = QTextEdit.ExtraSelection()
             line_sel.cursor = QTextCursor(line_cursor)
             line_fmt = line_sel.format
-            line_fmt.setBackground(QColor(204, 232, 255, 51))  # 浅蓝半透明
+            line_fmt.setBackground(QColor(self.theme['current_line']))
             line_fmt.setProperty(QTextFormat.FullWidthSelection, True)
             line_sel.format = line_fmt
             extra.insert(0, line_sel)
@@ -970,8 +1425,8 @@ class SearchPanel(QWidget):
             sel_cur = QTextEdit.ExtraSelection()
             sel_cur.cursor = QTextCursor(keyword_cursor)
             fmt = QTextCharFormat()
-            fmt.setBackground(QColor("#FF0000"))
-            fmt.setForeground(QColor("#FFFFFF"))
+            fmt.setBackground(QColor(self.theme['highlight']['search_current']))
+            fmt.setForeground(QColor(self.theme['highlight']['highlight_fg']))
             fmt.setFontWeight(QFont.Bold)
             sel_cur.format = fmt
             extra.append(sel_cur)
@@ -987,67 +1442,8 @@ class SearchPanel(QWidget):
                 return True
         return super().eventFilter(obj, event)
 
-class SearchHighlighter(QSyntaxHighlighter):
-    """
-    支持两种高亮：
-      - 全部匹配项的 background（默认黄色）
-      - 当前选中项的 background（蓝色）
-    接收 absolute document position（current_pos），用于把那一项渲染成 current fmt。
-    """
-    def __init__(self, doc):
-        super().__init__(doc)
-        self.keyword = ""
-        self.fmt = QTextCharFormat()
-        self.fmt.setBackground(QColor("#00FF00"))  # 酸橙色背景（全部匹配）
-        self.fmt_current = QTextCharFormat()
-        self.fmt_current.setForeground(QColor("#FFFFFF"))  # 白色字体
-        self.fmt_current.setFontWeight(QFont.Bold)  # 加粗
-        self.current_pos = None  # 绝对文档位置（selectionStart）
-        self._kw_len = 0
 
-    def set_keyword(self, text):
-        self.keyword = text or ""
-        self._kw_len = len(self.keyword)
-        # reset current pos when keyword changed
-        self.current_pos = None
-        self.rehighlight()
 
-    def set_current_pos(self, abs_pos):
-        """
-        abs_pos: 文档中的绝对位置（int），或 None 清除
-        """
-        self.current_pos = abs_pos
-        self.rehighlight()
-
-    def highlightBlock(self, text):
-        if not self.keyword:
-            return
-
-        # 不要清空已有格式（否则会覆盖 JsonHighlighter 的语法颜色）
-        # super().highlightBlock(text) 也不要调用
-
-        start = 0
-        while True:
-            pos = text.find(self.keyword, start)
-            if pos < 0:
-                break
-
-            length = len(self.keyword)
-
-            # 叠加背景色（不清除原格式）
-            fmt = QTextCharFormat()
-            fmt.setBackground(QColor("#00FF00"))  # 普通匹配
-            self.setFormat(pos, length, fmt)
-
-            # 当前项特殊格式
-            abs_start = self.currentBlock().position() + pos
-            if self.current_pos is not None and abs_start == self.current_pos:
-                fmt2 = QTextCharFormat(fmt)  # 保留背景
-                fmt2.setForeground(QColor("#FFFF00"))
-                fmt2.setFontWeight(QFont.Bold)
-                self.setFormat(pos, length, fmt2)
-
-            start = pos + length
 
 
 
