@@ -5,7 +5,8 @@ from PySide6.QtWidgets import (
     QPushButton, QFileDialog, QMessageBox, QLabel,
     QTreeWidget, QTreeWidgetItem, QMenuBar, QMenu,
     QPlainTextEdit, QTextEdit, QSplitter, QLineEdit,
-    QToolButton, QSizePolicy, QTreeWidgetItemIterator
+    QToolButton, QSizePolicy, QTreeWidgetItemIterator,
+    QInputDialog
 )
 from PySide6.QtGui import (
     QFont, QColor, QPainter, QTextFormat, QPalette,
@@ -118,6 +119,8 @@ class CodeEditor(QPlainTextEdit):
         self.theme = THEMES["light"]  # 默认主题
         self.textChanged.connect(self.update)  # 内容变化时刷新 placeholder
         self.lineNumberArea = LineNumberArea(self)
+        
+        self.search_extra_selections = []  # 存储搜索高亮
 
         # 绑定信号
         self.blockCountChanged.connect(self.update_line_number_area_width)  # 块数量变化时更新宽度
@@ -210,7 +213,17 @@ class CodeEditor(QPlainTextEdit):
             selection.cursor = self.textCursor()
             selection.cursor.clearSelection()
             extraSelections.append(selection)
+        
+        # 叠加搜索高亮
+        extraSelections.extend(self.search_extra_selections)
         self.setExtraSelections(extraSelections)
+
+    def set_search_selections(self, selections):
+        """
+        设置搜索高亮选区，并触发重绘
+        """
+        self.search_extra_selections = selections
+        self.highlight_current_line()
 
     # ====== 绘制 placeholder ======
     def paintEvent(self, event):
@@ -402,6 +415,24 @@ class CollapsiblePanel(QWidget):
             """)
 
 
+# ====== 可双击修改的标题标签 ======
+class EditableTitleLabel(QLabel):
+    def __init__(self, title, parent=None):
+        super().__init__(title, parent)
+        self.setToolTip("双击修改标题")
+        self.setCursor(Qt.PointingHandCursor)
+        # 稍微增加一点样式，使其看起来像标题
+        self.setStyleSheet("padding: 2px;")
+
+    def mouseDoubleClickEvent(self, event):
+        new_title, ok = QInputDialog.getText(self, "修改标题", "请输入新标题:", text=self.text())
+        if ok and new_title:
+            self.setText(new_title)
+            # 通知所在的顶层窗口更新标题
+            if self.window():
+                self.window().setWindowTitle(new_title)
+
+
 # ====== JSON 格式化窗口 ======
 class JsonFormatterWindow(QWidget):
     windows = []         # 所有窗口实例
@@ -476,19 +507,62 @@ class JsonFormatterWindow(QWidget):
         self.btn_save = QPushButton("保存")
         self.btn_copy = QPushButton("复制结果")
 
+        # 布局切换按钮
+        self.btn_layout_source_result = QPushButton("原始+结果")
+        self.btn_layout_source_tree = QPushButton("原始+树")
+        self.btn_layout_all = QPushButton("三栏布局")
+        self.btn_layout_tree_result = QPushButton("树+结果")
+
         # 绑定按钮事件
         self.btn_format.clicked.connect(self.format_json)
         self.btn_compress.clicked.connect(self.compress_json)
         self.btn_save.clicked.connect(self.save_file)
         self.btn_copy.clicked.connect(self.copy_result)
 
+        # 绑定布局切换事件
+        self.btn_layout_source_result.clicked.connect(lambda: self.switch_layout(True, False, True))
+        self.btn_layout_source_tree.clicked.connect(lambda: self.switch_layout(True, True, False))
+        self.btn_layout_all.clicked.connect(lambda: self.switch_layout(True, True, True))
+        self.btn_layout_tree_result.clicked.connect(lambda: self.switch_layout(False, True, True))
+
+        # 标题 Label (可双击修改)
+        title_text = f"JSON 格式化工具" + (f" {self.window_number}" if self.window_number > 1 else "")
+        self.title_label = EditableTitleLabel(title_text, self)
+        font = self.title_label.font()
+        font.setPointSize(16)
+        font.setBold(True)
+        self.title_label.setFont(font)
+        self.title_label.setContentsMargins(5, 0, 0, 0)
+
         btn_layout = QHBoxLayout()
+        btn_layout.addWidget(self.title_label)
+        
+        # 增加一点间距，但不要用 stretch 把按钮顶到最右边
+        btn_layout.addSpacing(255)
+
+        # 功能按钮组
         for btn in [self.btn_format, self.btn_compress, self.btn_copy, self.btn_save]:
             font = btn.font()
             font.setBold(True)  # 按钮加粗
             btn.setFont(font)
+            # 设置固定宽度（加宽）
+            btn.setFixedWidth(100) 
             btn_layout.addWidget(btn)
 
+        # 添加分割线或间距
+        btn_layout.addSpacing(20)
+
+        # 中间加弹簧，把后面的布局按钮顶到最右边
+        btn_layout.addStretch()
+
+        # 布局切换按钮组
+        for btn in [self.btn_layout_source_result, self.btn_layout_source_tree, 
+                    self.btn_layout_all, self.btn_layout_tree_result]:
+            font = btn.font()
+            # font.setBold(True) # 布局按钮是否加粗可选，这里保持一致性也可以加粗
+            btn.setFont(font)
+            btn_layout.addWidget(btn)
+        
         # ====== 主布局 ======
         main_layout = QVBoxLayout()
         main_layout.setContentsMargins(2, 2, 2, 2)  # 左上右下边距，顶部/底部间距缩小
@@ -704,7 +778,9 @@ class JsonFormatterWindow(QWidget):
                 panel.set_theme(theme)
             
             # 7. 更新按钮样式
-            for btn in [self.btn_format, self.btn_compress, self.btn_save, self.btn_copy]:
+            for btn in [self.btn_format, self.btn_compress, self.btn_save, self.btn_copy,
+                        self.btn_layout_source_result, self.btn_layout_source_tree, 
+                        self.btn_layout_all, self.btn_layout_tree_result]:
                 btn.setStyleSheet(f"""
                     QPushButton {{
                         background-color: {theme['input_bg']};
@@ -1033,6 +1109,46 @@ class JsonFormatterWindow(QWidget):
             tip.show()
             QtCore.QTimer.singleShot(800, tip.close)  # 0.8秒自动关闭
 
+    def switch_layout(self, show_left, show_mid, show_right):
+        """
+        切换布局模式
+        :param show_left: 是否显示原始 JSON
+        :param show_mid: 是否显示 JSON 树
+        :param show_right: 是否显示 JSON 结果
+        """
+        # 1. 设置面板展开/折叠状态
+        self.left_panel.set_expanded(show_left)
+        self.middle_panel.set_expanded(show_mid)
+        self.right_panel.set_expanded(show_right)
+        
+        # 2. 计算并设置 splitter 比例
+        # 统计需要显示的面板数量
+        visible_count = sum([show_left, show_mid, show_right])
+        if visible_count == 0:
+            return
+
+        total_width = self.splitter.width()
+        # 预留给折叠面板的宽度 (16px per collapsed panel)
+        collapsed_width = 16
+        
+        sizes = []
+        
+        # 辅助函数：根据状态返回应该设置的宽度
+        def get_width(is_visible):
+            if is_visible:
+                # 减去所有折叠面板占用的宽度后，平分剩余空间
+                collapsed_count = 3 - visible_count
+                net_width = total_width - (collapsed_count * collapsed_width)
+                return max(0, net_width // visible_count)
+            else:
+                return collapsed_width
+
+        sizes.append(get_width(show_left))
+        sizes.append(get_width(show_mid))
+        sizes.append(get_width(show_right))
+        
+        self.splitter.setSizes(sizes)
+
     def open_file(self):
         file_name, _ = QFileDialog.getOpenFileName(self, "打开 JSON 文件", "", "JSON 文件 (*.json)")
         if file_name:
@@ -1075,14 +1191,33 @@ class JsonFormatterWindow(QWidget):
 
     def open_search(self):
         key = self.current_editor_key()
+        
+        # 如果没有焦点，优先尝试输入框，其次输出框
         if not key:
-            return
+            if self.left_panel.is_expanded:
+                key = "input"
+                self.input_edit.setFocus()
+            elif self.right_panel.is_expanded:
+                key = "output"
+                self.output_edit.setFocus()
+            else:
+                # 都折叠了？强制展开输入框
+                key = "input"
+                self.left_panel.set_expanded(True)
+                self.input_edit.setFocus()
+        
+        # 确保目标面板是展开的
+        if key == "input" and not self.left_panel.is_expanded:
+             self.left_panel.set_expanded(True)
+        elif key == "output" and not self.right_panel.is_expanded:
+             self.right_panel.set_expanded(True)
 
         panel = self.search_panels[key]
         panel.reposition()
         panel.show()
         panel.raise_()
         panel.search_edit.setFocus()
+        panel.search_edit.selectAll()
 
     def next_match_current(self):
         key = self.current_editor_key()
@@ -1187,11 +1322,15 @@ class SearchPanel(QWidget):
         self.index = 0
 
         # 信号
-        self.btn_close.clicked.connect(self.hide)
+        self.btn_close.clicked.connect(self.close_search)
         self.search_edit.textChanged.connect(self.do_search)
         self.search_edit.returnPressed.connect(self.next_match)
         self.btn_next.clicked.connect(self.next_match)
         self.btn_prev.clicked.connect(self.prev_match)
+
+    def close_search(self):
+        self.search_edit.clear()
+        self.hide()
 
     def set_theme(self, theme_config):
         self.theme = theme_config
@@ -1321,18 +1460,20 @@ class SearchPanel(QWidget):
 
         # ---------- 在这里加入“整行浅蓝色高亮”（空选区 + FullWidthSelection） ----------
         # 注意：必须在设置所有搜索高亮之前构造或附加该项，以便同时显示
-        line_cursor = QTextCursor(doc)
-        # 把光标放在 current_pos（但不选中任何字符，保持空选区）
-        line_cursor.setPosition(current_pos)
-        line_sel = QTextEdit.ExtraSelection()
-        line_sel.cursor = QTextCursor(line_cursor)  # 空选区的独立 cursor
-        line_fmt = line_sel.format
-        # 使用主题中的当前行颜色
-        line_fmt.setBackground(QColor(self.theme['current_line']))  
-        line_fmt.setProperty(QTextFormat.FullWidthSelection, True)
-        line_sel.format = line_fmt
-        # 将整行高亮放到 extra 的最前面（视觉上与关键字红色叠加良好）
-        extra.insert(0, line_sel)
+        # 如果是 CodeEditor，它自己会处理当前行高亮，这里不需要添加
+        if not isinstance(self.editor, CodeEditor):
+            line_cursor = QTextCursor(doc)
+            # 把光标放在 current_pos（但不选中任何字符，保持空选区）
+            line_cursor.setPosition(current_pos)
+            line_sel = QTextEdit.ExtraSelection()
+            line_sel.cursor = QTextCursor(line_cursor)  # 空选区的独立 cursor
+            line_fmt = line_sel.format
+            # 使用主题中的当前行颜色
+            line_fmt.setBackground(QColor(self.theme['current_line']))  
+            line_fmt.setProperty(QTextFormat.FullWidthSelection, True)
+            line_sel.format = line_fmt
+            # 将整行高亮放到 extra 的最前面（视觉上与关键字红色叠加良好）
+            extra.insert(0, line_sel)
 
         # 当前匹配项（显式拷贝 cursor 并使用更醒目的格式）
         cur = QTextCursor(doc)
@@ -1349,7 +1490,10 @@ class SearchPanel(QWidget):
         extra.append(sel_cur)
 
         # 应用 ExtraSelections（包含：整行蓝 + 所有绿 + 当前红）
-        self.editor.setExtraSelections(extra)
+        if isinstance(self.editor, CodeEditor):
+            self.editor.set_search_selections(extra)
+        else:
+            self.editor.setExtraSelections(extra)
 
         # 把文本光标移动到当前匹配的起始位置（但不KeepAnchor，不形成真实选中，这样不会覆盖 ExtraSelection）
         move_cursor = self.editor.textCursor()
@@ -1385,7 +1529,7 @@ class SearchPanel(QWidget):
 
         if not keyword:
             if isinstance(self.editor, CodeEditor):
-                self.editor.highlight_current_line()
+                self.editor.set_search_selections([])
             else:
                 self.editor.setExtraSelections([])
             return
@@ -1407,16 +1551,17 @@ class SearchPanel(QWidget):
 
         # 当前匹配红色 + 整行浅蓝
         if current_pos is not None:
-            # 当前行浅蓝背景
-            line_cursor = QTextCursor(doc)
-            line_cursor.setPosition(current_pos)
-            line_sel = QTextEdit.ExtraSelection()
-            line_sel.cursor = QTextCursor(line_cursor)
-            line_fmt = line_sel.format
-            line_fmt.setBackground(QColor(self.theme['current_line']))
-            line_fmt.setProperty(QTextFormat.FullWidthSelection, True)
-            line_sel.format = line_fmt
-            extra.insert(0, line_sel)
+            # 当前行浅蓝背景 (CodeEditor 自动处理，非 CodeEditor 手动添加)
+            if not isinstance(self.editor, CodeEditor):
+                line_cursor = QTextCursor(doc)
+                line_cursor.setPosition(current_pos)
+                line_sel = QTextEdit.ExtraSelection()
+                line_sel.cursor = QTextCursor(line_cursor)
+                line_fmt = line_sel.format
+                line_fmt.setBackground(QColor(self.theme['current_line']))
+                line_fmt.setProperty(QTextFormat.FullWidthSelection, True)
+                line_sel.format = line_fmt
+                extra.insert(0, line_sel)
 
             # 当前匹配红色背景 + 白字
             keyword_cursor = QTextCursor(doc)
@@ -1431,7 +1576,10 @@ class SearchPanel(QWidget):
             sel_cur.format = fmt
             extra.append(sel_cur)
 
-        self.editor.setExtraSelections(extra)
+        if isinstance(self.editor, CodeEditor):
+            self.editor.set_search_selections(extra)
+        else:
+            self.editor.setExtraSelections(extra)
         self.editor.viewport().update()
 
     # 👉 加上 eventFilter（直接复制即可）
