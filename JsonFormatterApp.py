@@ -847,13 +847,135 @@ class JsonFormatterWindow(QWidget):
             self.highlighter.rehighlight()  # 🔹 确保高亮
 
         except json.JSONDecodeError as e:
-            # 自动触发时不提示，只清空结果
+            # 自动触发 或 手动触发
+            # 尝试查找并提取混合内容中的 JSON
+            extracted_json, start_idx, end_idx = self.extract_json_from_text(text)
+            if extracted_json:
+                try:
+                    # 解析提取出的 JSON
+                    data = json.loads(extracted_json)
+                    
+                    # 递归解析嵌套 JSON 字符串
+                    def parse_nested(obj):
+                        if isinstance(obj, dict):
+                            for k, v in obj.items():
+                                if isinstance(v, str):
+                                    try:
+                                        obj[k] = json.loads(v)
+                                    except Exception:
+                                        pass
+                                else:
+                                    parse_nested(v)
+                        elif isinstance(obj, list):
+                            for i, v in enumerate(obj):
+                                if isinstance(v, str):
+                                    try:
+                                        obj[i] = json.loads(v)
+                                    except Exception:
+                                        pass
+                                else:
+                                    parse_nested(v)
+                        return obj
+
+                    data = parse_nested(data)
+                    
+                    # 更新树
+                    self.populate_tree(data)
+                    
+                    # 格式化 JSON
+                    formatted_json = json.dumps(data, indent=4, ensure_ascii=False)
+                    
+                    # 拼接到原文中（保留前后非 JSON 内容）
+                    prefix = text[:start_idx]
+                    suffix = text[end_idx:]
+                    
+                    # 构造错误提示信息
+                    error_msg = f"// ⚠️ 解析警告：第 {e.lineno} 行解析错误，原因：{e.msg}\n"
+                    
+                    final_text = f"{error_msg}{prefix}{formatted_json}{suffix}"
+                    
+                    self.output_edit.setPlainText(final_text)
+                    self.highlighter.rehighlight()
+                    
+                    # 弹出警告提示（如果是自动触发，就不弹窗干扰了，改用状态栏或其他方式提示更好）
+                    if show_error_dialog:
+                        msg_info = (f"虽然提取并格式化了其中的 JSON 内容，\n"
+                                    f"但输入的文本包含非 JSON 字符，请检查原始数据。\n\n"
+                                    f"原始解析错误:\n{e.msg}\n行: {e.lineno}, 列: {e.colno}")
+                        QMessageBox.warning(self, "JSON 格式有误", msg_info)
+                    else:
+                        pass
+                    return
+
+                except Exception as inner_e:
+                    pass # 提取后的解析还是失败，继续显示原来的错误
+
+            # 只有在手动触发时，才弹出错误对话框
             if show_error_dialog:
                 QMessageBox.critical(self, "格式化失败", f"{e.msg}\n行: {e.lineno}, 列: {e.colno}")
             else:
                 self.output_tree.clear()
                 self.output_edit.setPlainText("")
                 self.highlighter.rehighlight()
+
+    def extract_json_from_text(self, text):
+        """
+        尝试从文本中提取第一个有效的 JSON 对象或数组
+        返回: (json_str, start_index, end_index)
+        """
+        text = text.strip()
+        
+        # 1. 寻找第一个 { 或 [
+        start_idx = -1
+        for i, char in enumerate(text):
+            if char in '{[':
+                start_idx = i
+                break
+                
+        if start_idx == -1:
+            return None, -1, -1
+            
+        # 2. 从 start_idx 开始匹配括号
+        stack = []
+        in_string = False
+        escape = False
+        
+        for i in range(start_idx, len(text)):
+            char = text[i]
+            
+            if in_string:
+                if escape:
+                    escape = False
+                elif char == '\\':
+                    escape = True
+                elif char == '"':
+                    in_string = False
+            else:
+                if char == '"':
+                    in_string = True
+                elif char in '{[':
+                    stack.append(char)
+                elif char in '}]':
+                    if not stack:
+                        # 只有右括号没有左括号，说明匹配失败（可能是多余的符号）
+                        continue 
+                    
+                    last = stack[-1]
+                    if (char == '}' and last == '{') or (char == ']' and last == '['):
+                        stack.pop()
+                        # 如果栈空了，说明找到了一个完整的闭合 JSON 对象
+                        if not stack:
+                            # 截取候选 JSON
+                            candidate = text[start_idx : i+1]
+                            # 尝试验证解析
+                            try:
+                                json.loads(candidate)
+                                return candidate, start_idx, i+1
+                            except:
+                                # 解析失败，继续寻找（可能只是碰巧匹配了括号但内容不对）
+                                pass
+        
+        return None, -1, -1
 
     # ====== 自动格式化输入 JSON ======
     def auto_format_input(self):

@@ -20,6 +20,15 @@ pyinstaller --windowed --name "JSON格式化" --strip --clean \
   -y JsonFormatterApp.py
 ```
 
+## mac打包通用版命令-pyside6
+```bash
+pyinstaller --windowed --name "JSON格式化" --strip --clean \
+  --icon=icon.icns \
+  --osx-bundle-identifier "com.lawliet.jsonformatter" \
+  --target-arch universal2 \
+  -y JsonFormatterApp.py
+```
+
 ## windows打包命令
 `pyinstaller --windowed --name "JSON格式化" --strip --clean --icon=icon.ico -y JsonFormatterApp.py`
 
