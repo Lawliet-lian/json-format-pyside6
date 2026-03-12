@@ -6,12 +6,12 @@ from PySide6.QtWidgets import (
     QTreeWidget, QTreeWidgetItem, QMenuBar, QMenu,
     QPlainTextEdit, QTextEdit, QSplitter, QLineEdit,
     QToolButton, QSizePolicy, QTreeWidgetItemIterator,
-    QInputDialog
+    QInputDialog, QStyledItemDelegate, QStyleOptionViewItem, QStyle
 )
 from PySide6.QtGui import (
     QFont, QColor, QPainter, QTextFormat, QPalette,
     QFontDatabase, QSyntaxHighlighter, QTextCharFormat,
-    QTextCursor, QShortcut, QKeySequence
+    QTextCursor, QShortcut, QKeySequence, QTextDocument
 )
 
 import json
@@ -47,7 +47,7 @@ THEMES = {
             "highlight_bg": "#4b5cc4",
             "highlight_fg": "#ffffff",
             "search_match": "#00FF00",
-            "search_current": "#008000"
+            "search_current": "#FF0000" # 红色
         },
         "scrollbar_handle": "#c1c1c1",
         "scrollbar_handle_hover": "#a8a8a8",
@@ -81,7 +81,7 @@ THEMES = {
             "highlight_bg": "#264f78",
             "highlight_fg": "#ffffff",
             "search_match": "#6A7B50",
-            "search_current": "#365535"
+            "search_current": "#FF0000" # 红色
         },
         "scrollbar_handle": "#424242",
         "scrollbar_handle_hover": "#4f4f4f",
@@ -433,6 +433,135 @@ class EditableTitleLabel(QLabel):
                 self.window().setWindowTitle(new_title)
 
 
+# ====== 搜索高亮代理 ======
+class SearchHighlightDelegate(QStyledItemDelegate):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.keyword = ""
+        self.theme = THEMES["light"]
+        self.current_item = None
+        self.current_match_index = -1
+
+    def set_search_config(self, keyword, theme):
+        self.keyword = keyword
+        self.theme = theme
+        self.current_item = None
+        self.current_match_index = -1
+        
+    def set_current_match(self, item, match_index):
+        self.current_item = item
+        self.current_match_index = match_index
+        
+    def paint(self, painter, option, index):
+        options = QStyleOptionViewItem(option)
+        self.initStyleOption(options, index)
+        
+        style = options.widget.style() if options.widget else QApplication.style()
+        
+        # 1. 绘制背景和选区状态（不带文字）
+        original_text = options.text
+        options.text = ""
+        style.drawControl(QStyle.CE_ItemViewItem, options, painter, options.widget)
+        options.text = original_text # 恢复 text
+
+        # 2. 绘制高亮文字
+        text = original_text
+        if not text:
+            return
+
+        import html
+        
+        # 获取当前 item (用于判断是否是当前匹配项)
+        current_item_widget = None
+        tree_widget = None
+        
+        if options.widget and isinstance(options.widget, QTreeWidget):
+             tree_widget = options.widget
+        elif self.parent() and isinstance(self.parent(), QTreeWidget):
+             tree_widget = self.parent()
+             
+        if tree_widget:
+             current_item_widget = tree_widget.itemFromIndex(index)
+
+        # 准备 HTML
+        html_content = html.escape(text)
+
+        if self.keyword:
+            import re
+            try:
+                # 在原始文本中查找匹配
+                pattern = re.compile(re.escape(self.keyword), re.IGNORECASE)
+                matches = list(pattern.finditer(text))
+                
+                if matches:
+                    html_parts = []
+                    last_end = 0
+                    
+                    # 获取颜色
+                    # 普通匹配颜色
+                    color_match = self.theme.get('highlight', {}).get('search_match', '#00FF00')
+                    # 当前聚焦匹配颜色
+                    color_current = self.theme.get('highlight', {}).get('search_current', '#008000')
+                    
+                    if isinstance(color_match, QColor): color_match = color_match.name()
+                    if isinstance(color_current, QColor): color_current = color_current.name()
+
+                    is_target_item = (current_item_widget == self.current_item)
+
+                    for i, match in enumerate(matches):
+                        # 添加匹配前的文本 (转义)
+                        html_parts.append(html.escape(text[last_end:match.start()]))
+                        
+                        # 确定当前匹配的背景色
+                        bg_color = color_match
+                        if is_target_item and i == self.current_match_index:
+                            bg_color = color_current
+                        
+                        # 添加匹配文本 (转义 + span)
+                        matched_str = html.escape(match.group(0))
+                        html_parts.append(f'<span style="background-color: {bg_color}; color: black;">{matched_str}</span>')
+                        
+                        last_end = match.end()
+                    
+                    # 添加剩余文本
+                    html_parts.append(html.escape(text[last_end:]))
+                    html_content = "".join(html_parts)
+                    
+            except Exception:
+                pass
+
+        painter.save()
+        
+        # 获取文本绘制区域
+        text_rect = style.subElementRect(QStyle.SE_ItemViewItemText, options, options.widget)
+        
+        # 使用 QTextDocument 渲染 HTML
+        doc = QTextDocument()
+        doc.setDefaultFont(options.font)
+        doc.setDocumentMargin(0) 
+        
+        # 确定文字颜色
+        if options.state & QStyle.State_Selected:
+            text_color = options.palette.color(QPalette.HighlightedText).name()
+        else:
+            text_color = options.palette.color(QPalette.Text).name()
+            
+        doc.setTextWidth(text_rect.width())
+        # white-space: pre 保持空格
+        doc.setHtml(f'<div style="color: {text_color}; white-space: pre;">{html_content}</div>')
+        
+        # 垂直居中调整
+        doc_height = doc.size().height()
+        offset_y = (text_rect.height() - doc_height) / 2
+        
+        painter.translate(text_rect.topLeft())
+        painter.translate(0, offset_y)
+        painter.setClipRect(0, 0, text_rect.width(), text_rect.height())
+        
+        doc.drawContents(painter)
+        painter.restore()
+
+
 # ====== JSON 格式化窗口 ======
 class JsonFormatterWindow(QWidget):
     windows = []         # 所有窗口实例
@@ -461,6 +590,9 @@ class JsonFormatterWindow(QWidget):
         self.output_tree.setHeaderHidden(True)
         self.output_tree.setFont(font)
         self.output_tree.itemClicked.connect(self.on_tree_item_clicked)
+        # 设置搜索高亮代理
+        self.search_delegate = SearchHighlightDelegate(self.output_tree)
+        self.output_tree.setItemDelegate(self.search_delegate)
         # 添加右键菜单
         self.output_tree.setContextMenuPolicy(Qt.CustomContextMenu)
         self.output_tree.customContextMenuRequested.connect(self.open_tree_context_menu)
@@ -613,7 +745,8 @@ class JsonFormatterWindow(QWidget):
         # ===== 搜索框（两栏）=====
         self.search_panels = {
             "input": SearchPanel(self, self.input_edit),
-            "output": SearchPanel(self, self.output_edit)
+            "output": SearchPanel(self, self.output_edit),
+            "tree": TreeSearchPanel(self, self.output_tree)
         }
 
         for p in self.search_panels.values():
@@ -1308,6 +1441,9 @@ class JsonFormatterWindow(QWidget):
 
         if w in (self.output_edit, self.output_edit.viewport()):
             return "output"
+            
+        if w in (self.output_tree, self.output_tree.viewport()):
+            return "tree"
 
         return None
 
@@ -1319,6 +1455,9 @@ class JsonFormatterWindow(QWidget):
             if self.left_panel.is_expanded:
                 key = "input"
                 self.input_edit.setFocus()
+            elif self.middle_panel.is_expanded:
+                key = "tree"
+                self.output_tree.setFocus()
             elif self.right_panel.is_expanded:
                 key = "output"
                 self.output_edit.setFocus()
@@ -1331,6 +1470,8 @@ class JsonFormatterWindow(QWidget):
         # 确保目标面板是展开的
         if key == "input" and not self.left_panel.is_expanded:
              self.left_panel.set_expanded(True)
+        elif key == "tree" and not self.middle_panel.is_expanded:
+             self.middle_panel.set_expanded(True)
         elif key == "output" and not self.right_panel.is_expanded:
              self.right_panel.set_expanded(True)
 
@@ -1715,6 +1856,106 @@ class SearchPanel(QWidget):
 
 
 
+
+
+class TreeSearchPanel(SearchPanel):
+    """
+    针对 QTreeWidget 的搜索面板
+    """
+    def __init__(self, parent, editor):
+        super().__init__(parent, editor)
+        self.tree_matches = []  # 存储匹配的 (QTreeWidgetItem, match_index)
+
+    def do_search(self):
+        text = self.search_edit.text()
+        
+        # 触发高亮 (设置全局 keyword)
+        self.highlight_search(text)
+        
+        self.tree_matches.clear()
+        
+        # 记得清除之前的高亮（如果有的话）
+        self.index = 0
+        
+        if not text:
+            self.label.setText("0 / 0")
+            return
+
+        import re
+        try:
+            pattern = re.compile(re.escape(text), re.IGNORECASE)
+            
+            # 遍历树的所有节点
+            iterator = QTreeWidgetItemIterator(self.editor)
+            while iterator.value():
+                item = iterator.value()
+                item_text = item.text(0)
+                
+                # 查找该节点内的所有匹配
+                matches = list(pattern.finditer(item_text))
+                for i in range(len(matches)):
+                    self.tree_matches.append((item, i))
+                    
+                iterator += 1
+        except Exception:
+            pass
+
+        self.update_label()
+
+        if self.tree_matches:
+            self.goto(0)
+
+    def update_label(self):
+        if not self.tree_matches:
+            self.label.setText("0 / 0")
+        else:
+            self.label.setText(f"{self.index+1} / {len(self.tree_matches)}")
+
+    def goto(self, idx):
+        if not self.tree_matches:
+            return
+            
+        # 防止越界
+        if idx < 0 or idx >= len(self.tree_matches):
+            return
+
+        self.index = idx
+        item, match_index = self.tree_matches[idx]
+
+        # 1. 确保父节点全部展开
+        parent = item.parent()
+        while parent:
+            parent.setExpanded(True)
+            parent = parent.parent()
+
+        # 2. 选中并滚动到该节点
+        self.editor.setCurrentItem(item)
+        self.editor.scrollToItem(item)
+        
+        # 3. 设置当前聚焦的匹配项
+        delegate = self.editor.itemDelegate()
+        if hasattr(delegate, 'set_current_match'):
+            delegate.set_current_match(item, match_index)
+            self.editor.viewport().update()
+        
+        self.update_label()
+
+    def next_match(self):
+        if not self.tree_matches:
+            return
+        self.goto((self.index + 1) % len(self.tree_matches))
+
+    def prev_match(self):
+        if not self.tree_matches:
+            return
+        self.goto((self.index - 1) % len(self.tree_matches))
+
+    def highlight_search(self, keyword, current_pos=None):
+        # 树控件文本内的高亮
+        delegate = self.editor.itemDelegate()
+        if hasattr(delegate, 'set_search_config'):
+            delegate.set_search_config(keyword, self.theme)
+            self.editor.viewport().update()
 
 
 if __name__ == "__main__":
