@@ -355,6 +355,14 @@ class CollapsiblePanel(QWidget):
         if self.content_widget:
             self.main_layout.addWidget(self.content_widget)
 
+    def add_search_widget(self, widget):
+        """
+        添加搜索组件到 Header 和 Content 之间
+        """
+        # index 0 is header, so insert at 1
+        self.main_layout.insertWidget(1, widget)
+        widget.hide()
+
     def set_theme(self, theme_config):
         self.theme = theme_config
         self.header.setStyleSheet(f"""
@@ -744,13 +752,15 @@ class JsonFormatterWindow(QWidget):
 
         # ===== 搜索框（两栏）=====
         self.search_panels = {
-            "input": SearchPanel(self, self.input_edit),
-            "output": SearchPanel(self, self.output_edit),
-            "tree": TreeSearchPanel(self, self.output_tree)
+            "input": SearchPanel(self.left_panel, self.input_edit),
+            "output": SearchPanel(self.right_panel, self.output_edit),
+            "tree": TreeSearchPanel(self.middle_panel, self.output_tree)
         }
 
-        for p in self.search_panels.values():
-            p.hide()
+        # 将搜索面板添加到对应的折叠面板中
+        self.left_panel.add_search_widget(self.search_panels["input"])
+        self.right_panel.add_search_widget(self.search_panels["output"])
+        self.middle_panel.add_search_widget(self.search_panels["tree"])
 
         QShortcut(QKeySequence("Ctrl+F"), self, activated=self.open_search)
         QShortcut(QKeySequence("Cmd+F"), self, activated=self.open_search)
@@ -1556,7 +1566,7 @@ class SearchPanel(QWidget):
         super().__init__(parent)
         self.parent = parent
         self.editor = editor
-        self.setFixedWidth(320)
+        # self.setFixedWidth(320)  # 移除固定宽度
         self.theme = THEMES["light"]
 
         # 布局
@@ -1631,35 +1641,9 @@ class SearchPanel(QWidget):
             self.highlight_search(self.search_edit.text())
 
     def reposition(self):
-        from PySide6.QtCore import QPoint
-
-        # 定位到 editor viewport 的左上角
-        try:
-            editor_top_left = self.editor.viewport().mapTo(self.parent, QPoint(0, 0))
-        except Exception:
-            editor_top_left = self.editor.mapTo(self.parent, QPoint(0, 0))
-
-        # 👉 完全吸附，取消 padding
-        x = editor_top_left.x()
-        y = editor_top_left.y()
-
-        # 边界检查（避免跑出窗口）
-        parent_w = self.parent.width()
-        parent_h = self.parent.height()
-        panel_w = self.width()
-        panel_h = self.height()
-
-        if x + panel_w > parent_w:
-            x = parent_w - panel_w
-        if y + panel_h > parent_h:
-            y = parent_h - panel_h
-        if x < 0:
-            x = 0
-        if y < 0:
-            y = 0
-
-        self.move(x, y)
-
+        # 布局管理模式下不需要手动定位
+        pass
+        
     def do_search(self):
         text = self.search_edit.text()
         self.highlight_search(text)
