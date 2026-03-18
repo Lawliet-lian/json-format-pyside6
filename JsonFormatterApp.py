@@ -15,6 +15,7 @@ from PySide6.QtGui import (
 )
 
 import json
+import re
 import sys
 
 # ====== 主题配置 ======
@@ -449,6 +450,9 @@ class SearchHighlightDelegate(QStyledItemDelegate):
         self.theme = THEMES["light"]
         self.current_item = None
         self.current_match_index = -1
+        # 缓存 QTextDocument 以避免在 paint 中频繁创建导致崩溃或性能问题
+        self._doc = QTextDocument()
+        self._doc.setDocumentMargin(0)
 
     def set_search_config(self, keyword, theme):
         self.keyword = keyword
@@ -509,7 +513,7 @@ class SearchHighlightDelegate(QStyledItemDelegate):
                     # 普通匹配颜色
                     color_match = self.theme.get('highlight', {}).get('search_match', '#00FF00')
                     # 当前聚焦匹配颜色
-                    color_current = self.theme.get('highlight', {}).get('search_current', '#008000')
+                    color_current = self.theme.get('highlight', {}).get('search_current', '#FF0000')
                     
                     if isinstance(color_match, QColor): color_match = color_match.name()
                     if isinstance(color_current, QColor): color_current = color_current.name()
@@ -543,10 +547,8 @@ class SearchHighlightDelegate(QStyledItemDelegate):
         # 获取文本绘制区域
         text_rect = style.subElementRect(QStyle.SE_ItemViewItemText, options, options.widget)
         
-        # 使用 QTextDocument 渲染 HTML
-        doc = QTextDocument()
-        doc.setDefaultFont(options.font)
-        doc.setDocumentMargin(0) 
+        # 使用缓存的 QTextDocument 渲染 HTML
+        self._doc.setDefaultFont(options.font)
         
         # 确定文字颜色
         if options.state & QStyle.State_Selected:
@@ -554,19 +556,19 @@ class SearchHighlightDelegate(QStyledItemDelegate):
         else:
             text_color = options.palette.color(QPalette.Text).name()
             
-        doc.setTextWidth(text_rect.width())
+        self._doc.setTextWidth(text_rect.width())
         # white-space: pre 保持空格
-        doc.setHtml(f'<div style="color: {text_color}; white-space: pre;">{html_content}</div>')
+        self._doc.setHtml(f'<div style="color: {text_color}; white-space: pre;">{html_content}</div>')
         
         # 垂直居中调整
-        doc_height = doc.size().height()
+        doc_height = self._doc.size().height()
         offset_y = (text_rect.height() - doc_height) / 2
         
         painter.translate(text_rect.topLeft())
         painter.translate(0, offset_y)
         painter.setClipRect(0, 0, text_rect.width(), text_rect.height())
         
-        doc.drawContents(painter)
+        self._doc.drawContents(painter)
         painter.restore()
 
 
@@ -606,8 +608,8 @@ class JsonFormatterWindow(QWidget):
         self.output_tree.customContextMenuRequested.connect(self.open_tree_context_menu)
 
         # ====== 输出文本 ======
-        self.output_edit = QTextEdit()
-        self.output_edit.setPlaceholderText("JSON 结果（格式化输出）")  # ✅ 原生 placeholder
+        self.output_edit = CodeEditor(placeholder="JSON 结果（格式化输出）")
+        self.output_edit.setPlaceholderText("JSON 结果（格式化输出）")  # CodeEditor 也支持这个
         # 添加 JSON 高亮器
         self.highlighter = JsonHighlighter(self.output_edit.document())
         self.output_edit.setFont(font)
@@ -643,6 +645,7 @@ class JsonFormatterWindow(QWidget):
 
         # 按钮
         self.btn_format = QPushButton("格式化")
+        self.btn_loose_parse = QPushButton("宽松解析")
         self.btn_compress = QPushButton("压缩")
         self.btn_save = QPushButton("保存")
         self.btn_copy = QPushButton("复制结果")
@@ -655,6 +658,7 @@ class JsonFormatterWindow(QWidget):
 
         # 绑定按钮事件
         self.btn_format.clicked.connect(self.format_json)
+        self.btn_loose_parse.clicked.connect(self.loose_parse_json)
         self.btn_compress.clicked.connect(self.compress_json)
         self.btn_save.clicked.connect(self.save_file)
         self.btn_copy.clicked.connect(self.copy_result)
@@ -681,7 +685,7 @@ class JsonFormatterWindow(QWidget):
         btn_layout.addSpacing(255)
 
         # 功能按钮组
-        for btn in [self.btn_format, self.btn_compress, self.btn_copy, self.btn_save]:
+        for btn in [self.btn_format, self.btn_loose_parse, self.btn_compress, self.btn_copy, self.btn_save]:
             font = btn.font()
             font.setBold(True)  # 按钮加粗
             btn.setFont(font)
@@ -878,15 +882,9 @@ class JsonFormatterWindow(QWidget):
             self.output_tree.set_theme(theme)
             
             # 4. 设置输出框主题
-            # 输出框是普通 QTextEdit，手动设置样式
-            self.output_edit.setStyleSheet(f"""
-                QTextEdit {{
-                    background-color: {theme['output_bg']};
-                    color: {theme['text_color']};
-                    border: 1px solid {theme['border_color']};
-                    border-radius: 4px;
-                }}
-            """)
+            # CodeEditor 自动处理主题，但我们需要手动调用它的 set_theme
+            self.output_edit.set_theme(theme)
+            
             # 更新 placeholder 颜色
             palette = self.output_edit.palette()
             palette.setColor(QPalette.PlaceholderText, QColor(theme['placeholder']))
@@ -943,6 +941,46 @@ class JsonFormatterWindow(QWidget):
             self._is_applying_theme = False
 
     # ====== 核心 JSON 处理逻辑 ======
+    def parse_nested_json_value(self, value):
+        if not isinstance(value, str):
+            return value
+        candidate = value.strip()
+        if len(candidate) >= 2 and candidate[0] == '`' and candidate[-1] == '`':
+            candidate = candidate[1:-1].strip()
+        attempts = [candidate]
+        if '\\"' in candidate:
+            attempts.append(candidate.replace('\\"', '"'))
+        for attempt in attempts:
+            current = attempt
+            for _ in range(3):
+                try:
+                    parsed = json.loads(current)
+                except Exception:
+                    break
+                if isinstance(parsed, str):
+                    next_current = parsed.strip()
+                    if next_current == current:
+                        return parsed
+                    current = next_current
+                    continue
+                return parsed
+        return value
+
+    def parse_nested_json_object(self, obj):
+        if isinstance(obj, dict):
+            for k, v in list(obj.items()):
+                parsed_v = self.parse_nested_json_value(v)
+                obj[k] = parsed_v
+                if isinstance(parsed_v, (dict, list)):
+                    self.parse_nested_json_object(parsed_v)
+        elif isinstance(obj, list):
+            for i, v in enumerate(list(obj)):
+                parsed_v = self.parse_nested_json_value(v)
+                obj[i] = parsed_v
+                if isinstance(parsed_v, (dict, list)):
+                    self.parse_nested_json_object(parsed_v)
+        return obj
+
     def process_json(self, text: str, show_error_dialog=True):
         """
         核心：格式化并渲染 JSON。
@@ -958,30 +996,7 @@ class JsonFormatterWindow(QWidget):
 
         try:
             data = json.loads(text)
-
-            # 递归解析嵌套 JSON 字符串
-            def parse_nested(obj):
-                if isinstance(obj, dict):
-                    for k, v in obj.items():
-                        if isinstance(v, str):
-                            try:
-                                obj[k] = json.loads(v)
-                            except Exception:
-                                pass
-                        else:
-                            parse_nested(v)
-                elif isinstance(obj, list):
-                    for i, v in enumerate(obj):
-                        if isinstance(v, str):
-                            try:
-                                obj[i] = json.loads(v)
-                            except Exception:
-                                pass
-                        else:
-                            parse_nested(v)
-                return obj
-
-            data = parse_nested(data)
+            data = self.parse_nested_json_object(data)
 
             # 更新树与右侧结果
             self.populate_tree(data)
@@ -997,30 +1012,7 @@ class JsonFormatterWindow(QWidget):
                 try:
                     # 解析提取出的 JSON
                     data = json.loads(extracted_json)
-                    
-                    # 递归解析嵌套 JSON 字符串
-                    def parse_nested(obj):
-                        if isinstance(obj, dict):
-                            for k, v in obj.items():
-                                if isinstance(v, str):
-                                    try:
-                                        obj[k] = json.loads(v)
-                                    except Exception:
-                                        pass
-                                else:
-                                    parse_nested(v)
-                        elif isinstance(obj, list):
-                            for i, v in enumerate(obj):
-                                if isinstance(v, str):
-                                    try:
-                                        obj[i] = json.loads(v)
-                                    except Exception:
-                                        pass
-                                else:
-                                    parse_nested(v)
-                        return obj
-
-                    data = parse_nested(data)
+                    data = self.parse_nested_json_object(data)
                     
                     # 更新树
                     self.populate_tree(data)
@@ -1136,6 +1128,84 @@ class JsonFormatterWindow(QWidget):
         text = self.input_edit.toPlainText().strip()
         self.process_json(text, show_error_dialog=True)
 
+    def normalize_loose_json_text(self, text: str) -> str:
+        normalized = text.strip()
+        fence_pattern = r'^\s*```(?:json)?\s*([\s\S]*?)\s*```\s*$'
+        fence_match = re.match(fence_pattern, normalized, flags=re.IGNORECASE)
+        if fence_match:
+            normalized = fence_match.group(1)
+
+        normalized = normalized.replace('\u00a0', ' ')
+        normalized = re.sub(r'\\\s*$', '', normalized)
+
+        if re.match(r'^\s*[\{\[]\\"', normalized):
+            normalized = re.sub(r'(?<!\\)\\"', '"', normalized)
+
+        normalized = re.sub(
+            r'`([^`\\]*(?:\\.[^`\\]*)*)`',
+            lambda m: json.dumps(m.group(1), ensure_ascii=False),
+            normalized
+        )
+
+        previous = None
+        while previous != normalized:
+            previous = normalized
+            normalized = re.sub(r',(\s*[}\]])', r'\1', normalized)
+
+        return normalized
+
+    def complete_json_structure(self, text: str) -> str:
+        stack = []
+        in_string = False
+        escape = False
+        for ch in text:
+            if in_string:
+                if escape:
+                    escape = False
+                elif ch == '\\':
+                    escape = True
+                elif ch == '"':
+                    in_string = False
+            else:
+                if ch == '"':
+                    in_string = True
+                elif ch in '{[':
+                    stack.append(ch)
+                elif ch in '}]' and stack:
+                    top = stack[-1]
+                    if (top == '{' and ch == '}') or (top == '[' and ch == ']'):
+                        stack.pop()
+        completed = text
+        if in_string:
+            if completed.endswith('\\'):
+                completed = re.sub(r'\\+$', '', completed)
+            completed += '"'
+        for token in reversed(stack):
+            completed += '}' if token == '{' else ']'
+        return completed
+
+    def try_repair_loose_json_text(self, text: str) -> str:
+        candidate = text
+        for _ in range(3):
+            try:
+                json.loads(candidate)
+                return candidate
+            except json.JSONDecodeError as e:
+                if "Unterminated string" in e.msg or "Expecting ',' delimiter" in e.msg:
+                    repaired = self.complete_json_structure(candidate)
+                    if repaired == candidate:
+                        break
+                    candidate = repaired
+                    continue
+                break
+        return candidate
+
+    def loose_parse_json(self):
+        text = self.input_edit.toPlainText().strip()
+        normalized = self.normalize_loose_json_text(text)
+        normalized = self.try_repair_loose_json_text(normalized)
+        self.process_json(normalized, show_error_dialog=True)
+
     # ====== 新建窗口静态方法 ======
     @staticmethod
     def new_window_static():
@@ -1162,7 +1232,6 @@ class JsonFormatterWindow(QWidget):
             else:
                 parent.addChild(item)
             item.setExpanded(True)
-            item.setData(0, QtCore.Qt.UserRole, data)  # 存储完整数据
             for k, v in data.items():
                 self.populate_tree(v, item, k)
 
@@ -1174,7 +1243,6 @@ class JsonFormatterWindow(QWidget):
             else:
                 parent.addChild(item)
             item.setExpanded(True)
-            item.setData(0, QtCore.Qt.UserRole, data)  # 存储完整数据
             for i, v in enumerate(data):
                 self.populate_tree(v, item, f"[{i}]")
         else:
@@ -1185,7 +1253,7 @@ class JsonFormatterWindow(QWidget):
                 parent.addTopLevelItem(item)
             else:
                 parent.addChild(item)
-            item.setData(0, QtCore.Qt.UserRole, (key_name, data))  # 存 key/value
+            item.setData(0, QtCore.Qt.UserRole, json.dumps({"k": key_name, "v": data}, ensure_ascii=False))
             item.setChildIndicatorPolicy(QTreeWidgetItem.DontShowIndicator)
 
     # ====== 点击树节点显示对应 JSON ======
@@ -1203,6 +1271,14 @@ class JsonFormatterWindow(QWidget):
             if child_count == 0:
                 # 叶子节点直接取 UserRole 数据
                 data = it.data(0, Qt.UserRole)
+                if isinstance(data, str):
+                    try:
+                        payload = json.loads(data)
+                    except Exception:
+                        payload = None
+                    if isinstance(payload, dict) and "k" in payload and "v" in payload:
+                        key, value = payload["k"], payload["v"]
+                        return {key: value} if key else value
                 if isinstance(data, tuple) and len(data) == 2:
                     key, value = data
                     return {key: value} if key else value
