@@ -29,10 +29,9 @@ pyinstaller --windowed --name "JSON格式化" --strip --clean \
   -y JsonFormatterApp.py
 ```
 
-## windows打包命令
-`pyinstaller --windowed --name "JSON格式化" --strip --clean --icon=icon.ico -y JsonFormatterApp.py`
-
-## linux打包命令
-`pyinstaller --windowed --name "JSON格式化" --strip --clean --icon=icon.png -y JsonFormatterApp.py`
+## 使用虚拟环境
+```bash
+source venv/bin/activate
+```
 
 
