@@ -8,7 +8,7 @@ pyinstaller --windowed --name "JSON格式化" --strip --clean \
   --icon=icon.icns \
   --osx-bundle-identifier "com.lawliet.jsonformatter" \
   --target-arch arm64 \
-  -y JsonFormatterApp.py
+  -y json_formatter_app.py
 ```
 
 ## mac打包intel命令-pyside6
@@ -17,7 +17,7 @@ pyinstaller --windowed --name "JSON格式化" --strip --clean \
   --icon=icon.icns \
   --osx-bundle-identifier "com.lawliet.jsonformatter" \
   --target-arch x86_64 \
-  -y JsonFormatterApp.py
+  -y json_formatter_app.py
 ```
 
 ## mac打包通用版命令-pyside6
@@ -26,7 +26,7 @@ pyinstaller --windowed --name "JSON格式化" --strip --clean \
   --icon=icon.icns \
   --osx-bundle-identifier "com.lawliet.jsonformatter" \
   --target-arch universal2 \
-  -y JsonFormatterApp.py
+  -y json_formatter_app.py
 ```
 
 ## 使用虚拟环境
