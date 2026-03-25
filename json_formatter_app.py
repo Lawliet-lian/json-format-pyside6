@@ -206,15 +206,14 @@ class CodeEditor(QPlainTextEdit):
     # ====== 当前行高亮 ======
     def highlight_current_line(self):
         extraSelections = []
-        if not self.isReadOnly():
-            selection = QTextEdit.ExtraSelection()
-            # 当前行背景色
-            lineColor = QColor(self.theme["current_line"])
-            selection.format.setBackground(lineColor)
-            selection.format.setProperty(QTextFormat.FullWidthSelection, True)
-            selection.cursor = self.textCursor()
-            selection.cursor.clearSelection()
-            extraSelections.append(selection)
+        selection = QTextEdit.ExtraSelection()
+        # 当前行背景色
+        lineColor = QColor(self.theme["current_line"])
+        selection.format.setBackground(lineColor)
+        selection.format.setProperty(QTextFormat.FullWidthSelection, True)
+        selection.cursor = self.textCursor()
+        selection.cursor.clearSelection()
+        extraSelections.append(selection)
         
         # 叠加搜索高亮
         extraSelections.extend(self.search_extra_selections)
