@@ -2,7 +2,7 @@
 
 
 a = Analysis(
-    ['JsonFormatterApp.py'],
+    ['json_formatter_app.py'],
     pathex=[],
     binaries=[],
     datas=[],

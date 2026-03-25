@@ -17,6 +17,7 @@ from PySide6.QtGui import (
 import json
 import re
 import sys
+from string_format_app import FormatterWindow
 
 # ====== 主题配置 ======
 THEMES = {
@@ -575,6 +576,7 @@ class SearchHighlightDelegate(QStyledItemDelegate):
 # ====== JSON 格式化窗口 ======
 class JsonFormatterWindow(QWidget):
     windows = []         # 所有窗口实例
+    tool_windows = []    # 其他工具窗口实例
     window_count = 0     # 窗口计数，用于区分标题
 
     def __init__(self):
@@ -721,6 +723,8 @@ class JsonFormatterWindow(QWidget):
         menu_bar.addMenu(file_menu)
         new_action = file_menu.addAction("新建 JSON 窗口")
         new_action.triggered.connect(JsonFormatterWindow.new_window_static)
+        string_tool_action = file_menu.addAction("打开字符串格式化窗口")
+        string_tool_action.triggered.connect(self.open_string_formatter_window)
         open_action = file_menu.addAction("打开 JSON 文件")
         open_action.triggered.connect(self.open_file)
         
@@ -1211,6 +1215,11 @@ class JsonFormatterWindow(QWidget):
     def new_window_static():
         win = JsonFormatterWindow()
         win.show()
+
+    def open_string_formatter_window(self):
+        win = FormatterWindow()
+        win.show()
+        JsonFormatterWindow.tool_windows.append(win)
 
     # ====== 构建树 ======
     def populate_tree(self, data, parent=None, key_name=None):
