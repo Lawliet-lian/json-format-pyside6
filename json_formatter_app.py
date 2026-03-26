@@ -108,6 +108,9 @@ class LineNumberArea(QWidget):
         # 代理绘制，由父 CodeEditor 处理
         self.editor.line_number_area_paint_event(event)
 
+    def mousePressEvent(self, event):
+        self.editor.line_number_area_mouse_press_event(event)
+
 
 # ====== 支持行号的 QPlainTextEdit ======
 class CodeEditor(QPlainTextEdit):
@@ -123,11 +126,20 @@ class CodeEditor(QPlainTextEdit):
         self.lineNumberArea = LineNumberArea(self)
         
         self.search_extra_selections = []  # 存储搜索高亮
+        self.folding_enabled = False
+        self.fold_regions = {}
+        self.folded_starts = set()
+        self.fold_placeholder_blocks = {}
+        self.skip_map = {}  # 优化：用于在绘制行号时快速跳过大量隐藏块
+        self._updating_fold_placeholder = False
+        self.fold_gutter_width = 7
+        self.fold_symbol_gap = 5
 
         # 绑定信号
         self.blockCountChanged.connect(self.update_line_number_area_width)  # 块数量变化时更新宽度
         self.updateRequest.connect(self.update_line_number_area)  # 滚动/更新时刷新行号
         self.cursorPositionChanged.connect(self.highlight_current_line)  # 光标行高亮
+        self.textChanged.connect(self.rebuild_fold_regions)
 
         self.update_line_number_area_width(0)
         self.highlight_current_line()
@@ -151,9 +163,16 @@ class CodeEditor(QPlainTextEdit):
         """)
 
     # ====== 行号宽度计算 ======
+    def fold_area_width(self):
+        if not self.folding_enabled:
+            return 0
+        symbol_width = self.fontMetrics().horizontalAdvance("▶")
+        return max(self.fold_gutter_width, symbol_width + self.fold_symbol_gap)
+
     def line_number_area_width(self):
         digits = len(str(max(1, self.blockCount())))
-        space = 10 + self.fontMetrics().horizontalAdvance('9') * digits
+        fold_width = self.fold_area_width()
+        space = 6 + self.fontMetrics().horizontalAdvance('9') * digits + fold_width
         return space
 
     def update_line_number_area_width(self, _):
@@ -194,14 +213,249 @@ class CodeEditor(QPlainTextEdit):
         painter.setPen(text_color)
         
         while block.isValid() and top <= event.rect().bottom():
-            if block.isVisible() and bottom >= event.rect().top():
-                number = str(blockNumber + 1)
-                painter.drawText(0, top, self.lineNumberArea.width() - 2, self.fontMetrics().height(),
-                                 QtCore.Qt.AlignRight, number)
+            if block.isVisible():
+                if bottom >= event.rect().top():
+                    line_height = self.fontMetrics().height()
+                    fold_width = self.fold_area_width()
+                    number_col_width = self.fontMetrics().horizontalAdvance('9') * len(str(max(1, self.blockCount())))
+                    if self.folding_enabled and blockNumber in self.fold_regions:
+                        symbol = "▶" if blockNumber in self.folded_starts else "▼"
+                    number = str(blockNumber + 1)
+                    number_width = self.fontMetrics().horizontalAdvance(number)
+                    number_x = self.lineNumberArea.width() - fold_width - number_col_width
+                    if self.folding_enabled and blockNumber in self.fold_regions:
+                        symbol_width = self.fontMetrics().horizontalAdvance(symbol)
+                        symbol_x = min(self.lineNumberArea.width() - symbol_width, number_x + number_col_width + self.fold_symbol_gap)
+                        painter.drawText(symbol_x, top, symbol_width, line_height, QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, symbol)
+                    painter.drawText(number_x, top, number_col_width, line_height, QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter, number)
+                
+                # 只有可见块才更新 top 和 bottom
+                top = bottom
+                bottom = top + round(self.blockBoundingRect(block).height())
+                block = block.next()
+                blockNumber += 1
+            else:
+                # 快速跳过隐藏块
+                if blockNumber in self.skip_map:
+                    jump_to = self.skip_map[blockNumber]
+                    block = self.document().findBlockByNumber(jump_to)
+                    blockNumber = jump_to
+                else:
+                    block = block.next()
+                    blockNumber += 1
+
+    def line_number_area_mouse_press_event(self, event):
+        if not self.folding_enabled:
+            return
+        if event.button() != Qt.LeftButton:
+            return
+        fold_width = self.fold_area_width()
+        fold_start_x = self.lineNumberArea.width() - fold_width
+        if event.position().x() < fold_start_x or event.position().x() > self.lineNumberArea.width():
+            return
+        block_number = self.block_number_at_y(event.position().y())
+        if block_number is None:
+            return
+        if block_number in self.fold_regions:
+            self.toggle_fold(block_number)
+
+    def block_number_at_y(self, y):
+        block = self.firstVisibleBlock()
+        block_number = block.blockNumber()
+        top = round(self.blockBoundingGeometry(block).translated(self.contentOffset()).top())
+        bottom = top + round(self.blockBoundingRect(block).height())
+        while block.isValid():
+            if block.isVisible():
+                if top <= y <= bottom:
+                    return block_number
+                if top > y:
+                    return None
+                top = bottom
+                bottom = top + round(self.blockBoundingRect(block).height())
+                block = block.next()
+                block_number += 1
+            else:
+                if block_number in self.skip_map:
+                    jump_to = self.skip_map[block_number]
+                    block = self.document().findBlockByNumber(jump_to)
+                    block_number = jump_to
+                else:
+                    block = block.next()
+                    block_number += 1
+        return None
+
+    def enable_json_folding(self, enabled=True):
+        self.folding_enabled = enabled
+        if not enabled:
+            self.fold_regions = {}
+            self.folded_starts.clear()
+            self.restore_fold_placeholders()
+        self.update_line_number_area_width(0)
+        self.rebuild_fold_regions()
+
+    def rebuild_fold_regions(self):
+        if not self.folding_enabled:
+            return
+        if self._updating_fold_placeholder:
+            return
+        fold_regions = {}
+        stack = []
+        block = self.document().firstBlock()
+        while block.isValid():
+            line = block.text()
+            block_num = block.blockNumber()
+            in_string = False
+            escape = False
+            for ch in line:
+                if in_string:
+                    if escape:
+                        escape = False
+                    elif ch == '\\':
+                        escape = True
+                    elif ch == '"':
+                        in_string = False
+                else:
+                    if ch == '"':
+                        in_string = True
+                    elif ch in '{[':
+                        stack.append((ch, block_num))
+                    elif ch in '}]':
+                        expected = '{' if ch == '}' else '['
+                        if stack and stack[-1][0] == expected:
+                            _, start = stack.pop()
+                            if block_num > start:
+                                fold_regions[start] = max(fold_regions.get(start, start), block_num)
             block = block.next()
-            top = bottom
-            bottom = top + round(self.blockBoundingRect(block).height())
-            blockNumber += 1
+        self.fold_regions = fold_regions
+        self.folded_starts = {s for s in self.folded_starts if s in self.fold_regions}
+        self.apply_fold_visibility()
+
+    def toggle_fold(self, start_block_number):
+        if start_block_number not in self.fold_regions:
+            return
+        if start_block_number in self.folded_starts:
+            self.folded_starts.remove(start_block_number)
+        else:
+            self.folded_starts.add(start_block_number)
+            cursor_block = self.textCursor().blockNumber()
+            end_block = self.fold_regions.get(start_block_number, start_block_number)
+            if start_block_number < cursor_block <= end_block:
+                cursor = self.textCursor()
+                start_block = self.document().findBlockByNumber(start_block_number)
+                cursor.setPosition(start_block.position())
+                self.setTextCursor(cursor)
+        self.apply_fold_visibility()
+
+    def apply_fold_visibility(self):
+        if not self.folding_enabled:
+            return
+        self.restore_fold_placeholders()
+        
+        # 1. 确定哪些块需要隐藏
+        hidden_blocks = set()
+        blocks_to_hide = set()
+        self.skip_map.clear()
+
+        for start in sorted(self.folded_starts):
+            if start in hidden_blocks:
+                continue 
+            
+            end = self.fold_regions.get(start)
+            if end is None:
+                continue
+            if end > start + 1:
+                placeholder_block_num = start + 1
+                placeholder_block = self.document().findBlockByNumber(placeholder_block_num)
+                if placeholder_block.isValid():
+                    original_text = placeholder_block.text()
+                    indent = re.match(r"\s*", original_text).group(0)
+                    self.set_block_text(placeholder_block_num, f"{indent}...")
+                    self.fold_placeholder_blocks[start] = (placeholder_block_num, original_text)
+            
+            if end > start + 2:
+                # 记录跳跃表，从隐藏的第一行直接跳到隐藏的最后一行（或第一条可见行 end）
+                self.skip_map[start + 2] = end
+                
+            for i in range(start + 2, end):
+                blocks_to_hide.add(i)
+                hidden_blocks.add(i)
+                
+        # 2. 遍历所有块并设置可见性
+        block = self.document().firstBlock()
+        dirty = False
+        while block.isValid():
+            b_num = block.blockNumber()
+            should_hide = b_num in blocks_to_hide
+            
+            if block.isVisible() == should_hide:
+                block.setVisible(not should_hide)
+                # 只对可见性发生变化的块标记 dirty
+                self.document().markContentsDirty(block.position(), block.length())
+                dirty = True
+                
+            block = block.next()
+            
+        if dirty:
+            # 强制更新文档布局
+            self.document().documentLayout().requestUpdate()
+            
+            # 黑科技：通过切换换行模式强制重新计算滚动条和视口
+            wrap_mode = self.lineWrapMode()
+            self.setLineWrapMode(QPlainTextEdit.WidgetWidth if wrap_mode == QPlainTextEdit.NoWrap else QPlainTextEdit.NoWrap)
+            self.setLineWrapMode(wrap_mode)
+            
+            self.viewport().update()
+            self.lineNumberArea.update()
+
+    def set_block_text(self, block_number, text):
+        block = self.document().findBlockByNumber(block_number)
+        if not block.isValid():
+            return
+        self._updating_fold_placeholder = True
+        try:
+            was_readonly = self.isReadOnly()
+            if was_readonly:
+                self.setReadOnly(False)
+            cursor = QTextCursor(block)
+            cursor.setPosition(block.position())
+            cursor.movePosition(QTextCursor.EndOfBlock, QTextCursor.KeepAnchor)
+            cursor.insertText(text)
+            if was_readonly:
+                self.setReadOnly(True)
+        finally:
+            self._updating_fold_placeholder = False
+
+    def restore_fold_placeholders(self):
+        if not self.fold_placeholder_blocks:
+            return
+        items = list(self.fold_placeholder_blocks.items())
+        self.fold_placeholder_blocks.clear()
+        for _, (block_num, original_text) in items:
+            self.set_block_text(block_num, original_text)
+
+    def expand_folds_for_position(self, position):
+        if not self.folding_enabled:
+            return
+        block = self.document().findBlock(position)
+        if not block.isValid():
+            return
+        block_number = block.blockNumber()
+        changed = False
+        for start in list(self.folded_starts):
+            end = self.fold_regions.get(start)
+            if end is not None and start < block_number <= end:
+                self.folded_starts.remove(start)
+                changed = True
+        if changed:
+            self.apply_fold_visibility()
+
+    def expand_all_folds(self):
+        if not self.folding_enabled:
+            return
+        if not self.folded_starts:
+            return
+        self.folded_starts.clear()
+        self.apply_fold_visibility()
 
     # ====== 当前行高亮 ======
     def highlight_current_line(self):
@@ -253,6 +507,9 @@ class LineNumberArea(QWidget):
     def paintEvent(self, event):
         # 代理绘制，由父 CodeEditor 处理
         self.editor.line_number_area_paint_event(event)
+
+    def mousePressEvent(self, event):
+        self.editor.line_number_area_mouse_press_event(event)
 
 # ====== 支持 placeholder 的 QTreeWidget ======
 class PlaceholderTreeWidget(QTreeWidget):
@@ -615,6 +872,7 @@ class JsonFormatterWindow(QWidget):
         self.highlighter = JsonHighlighter(self.output_edit.document())
         self.output_edit.setFont(font)
         self.output_edit.setReadOnly(True)
+        self.output_edit.enable_json_folding(True)
         palette = self.output_edit.palette()
         palette.setColor(QPalette.PlaceholderText, QColor("#999999"))  # placeholder 灰色
         self.output_edit.setPalette(palette)
@@ -1730,6 +1988,8 @@ class SearchPanel(QWidget):
         
     def do_search(self):
         text = self.search_edit.text()
+        if isinstance(self.editor, CodeEditor):
+            self.editor.expand_all_folds()
         self.highlight_search(text)
 
         self.matches.clear()
@@ -1830,6 +2090,8 @@ class SearchPanel(QWidget):
         move_cursor = self.editor.textCursor()
         move_cursor.setPosition(current_pos)
         self.editor.setTextCursor(move_cursor)
+        if isinstance(self.editor, CodeEditor):
+            self.editor.expand_folds_for_position(current_pos)
         self.editor.ensureCursorVisible()
 
         # 强制刷新（确保视觉更新）
