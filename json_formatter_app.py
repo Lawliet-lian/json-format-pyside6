@@ -333,10 +333,12 @@ class CodeEditor(QPlainTextEdit):
     def toggle_fold(self, start_block_number):
         if start_block_number not in self.fold_regions:
             return
+            
         if start_block_number in self.folded_starts:
             self.folded_starts.remove(start_block_number)
         else:
             self.folded_starts.add(start_block_number)
+            # 如果当前光标在被折叠的区域内，则将光标移出到折叠节点起始行
             cursor_block = self.textCursor().blockNumber()
             end_block = self.fold_regions.get(start_block_number, start_block_number)
             if start_block_number < cursor_block <= end_block:
@@ -344,7 +346,21 @@ class CodeEditor(QPlainTextEdit):
                 start_block = self.document().findBlockByNumber(start_block_number)
                 cursor.setPosition(start_block.position())
                 self.setTextCursor(cursor)
+                
         self.apply_fold_visibility()
+        
+        # 折叠/展开后，尝试恢复滚动条位置，或者确保当前操作的块仍然可见
+        # 我们优先确保被点击折叠的这一行在视口内
+        start_block = self.document().findBlockByNumber(start_block_number)
+        if start_block.isValid():
+            # 将光标移动到被折叠/展开的块
+            cursor = self.textCursor()
+            cursor.setPosition(start_block.position())
+            self.setTextCursor(cursor)
+            # 强制确保光标所在的这一行在视口内可见
+            # 因为我们在 apply_fold_visibility 中做了布局的强制刷新
+            # 我们需要在这里通过定时器稍微延迟一下，确保布局刷新完成后再滚动
+            QtCore.QTimer.singleShot(0, self.ensureCursorVisible)
 
     def apply_fold_visibility(self):
         if not self.folding_enabled:
