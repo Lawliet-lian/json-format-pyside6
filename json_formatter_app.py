@@ -855,7 +855,7 @@ class JsonFormatterWindow(QWidget):
         super().__init__()
         JsonFormatterWindow.window_count += 1
         self.window_number = JsonFormatterWindow.window_count
-        self.setWindowTitle(f"JSON 格式化工具" + (f" {self.window_number}" if self.window_number > 1 else ""))
+        self.setWindowTitle(f"JSON 工具" + (f" {self.window_number}" if self.window_number > 1 else ""))
         self.resize(1200, 700)
 
         # 使用固定宽度字体
@@ -955,7 +955,7 @@ class JsonFormatterWindow(QWidget):
         self.btn_layout_tree_result.clicked.connect(lambda: self.switch_layout(False, True, True))
 
         # 标题 Label (可双击修改)
-        title_text = f"JSON 格式化工具" + (f" {self.window_number}" if self.window_number > 1 else "")
+        title_text = f"JSON 工具" + (f" {self.window_number}" if self.window_number > 1 else "")
         self.title_label = EditableTitleLabel(title_text, self)
         font = self.title_label.font()
         font.setPointSize(16)
@@ -963,27 +963,42 @@ class JsonFormatterWindow(QWidget):
         self.title_label.setFont(font)
         self.title_label.setContentsMargins(5, 0, 0, 0)
 
-        btn_layout = QHBoxLayout()
-        btn_layout.addWidget(self.title_label)
-        btn_layout.addWidget(self.btn_pin_window)
-        
-        # 增加一点间距，但不要用 stretch 把按钮顶到最右边
-        btn_layout.addSpacing(215)
+        # 顶部操作区改成两行布局：
+        # 第一行放标题、图钉按钮和主要功能按钮；
+        # 第二行单独放布局切换按钮。
+        # 这样可以显著降低一整行横向排列带来的最小宽度压力，
+        # 让主窗口在水平方向上更容易缩放。
+        top_controls_layout = QVBoxLayout()
+        top_controls_layout.setContentsMargins(0, 0, 0, 0)
+        top_controls_layout.setSpacing(4)
+
+        first_row_layout = QHBoxLayout()
+        first_row_layout.setContentsMargins(0, 0, 0, 0)
+        first_row_layout.setSpacing(6)
+        first_row_layout.addWidget(self.title_label)
+        first_row_layout.addStretch(1)
 
         # 功能按钮组
         for btn in [self.btn_format, self.btn_loose_parse, self.btn_compress, self.btn_copy, self.btn_save]:
             font = btn.font()
             font.setBold(True)  # 按钮加粗
             btn.setFont(font)
-            # 设置固定宽度（加宽）
-            btn.setFixedWidth(100) 
-            btn_layout.addWidget(btn)
+            # 不再使用固定宽度。
+            # 交给 QPushButton 自己根据文字内容和内边距计算 sizeHint，
+            # 这样按钮宽度会更贴近实际文本长度，不会出现明显过宽的空白。
+            btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+            first_row_layout.addWidget(btn)
 
-        # 添加分割线或间距
-        btn_layout.addSpacing(20)
-
-        # 中间加弹簧，把后面的布局按钮顶到最右边
-        btn_layout.addStretch()
+        second_row_layout = QHBoxLayout()
+        second_row_layout.setContentsMargins(0, 0, 0, 0)
+        second_row_layout.setSpacing(6)
+        # 将图钉按钮放到第二行左侧，这样视觉上就在主标题正下方。
+        # 第二行剩余空间再用弹性留白隔开，右侧继续放布局切换按钮。
+        # 这里增加一个很小的左侧留白，让图钉按钮不要紧贴最左边，
+        # 并尽量与标题文字的起始位置保持对齐。
+        second_row_layout.addSpacing(5)
+        second_row_layout.addWidget(self.btn_pin_window)
+        second_row_layout.addStretch(1)
 
         # 布局切换按钮组
         for btn in [self.btn_layout_source_result, self.btn_layout_source_tree, 
@@ -991,13 +1006,16 @@ class JsonFormatterWindow(QWidget):
             font = btn.font()
             # font.setBold(True) # 布局按钮是否加粗可选，这里保持一致性也可以加粗
             btn.setFont(font)
-            btn_layout.addWidget(btn)
+            second_row_layout.addWidget(btn)
+
+        top_controls_layout.addLayout(first_row_layout)
+        top_controls_layout.addLayout(second_row_layout)
         
         # ====== 主布局 ======
         main_layout = QVBoxLayout()
         main_layout.setContentsMargins(2, 2, 2, 2)  # 左上右下边距，顶部/底部间距缩小
         main_layout.setSpacing(2)  # 垂直间距缩小
-        main_layout.addLayout(btn_layout)
+        main_layout.addLayout(top_controls_layout)
         main_layout.addWidget(self.splitter)
         self.setLayout(main_layout)
 
@@ -1038,8 +1056,8 @@ class JsonFormatterWindow(QWidget):
         # 新增帮助菜单
         help_menu = QMenu("帮助", self)
         menu_bar.addMenu(help_menu)
-        # 添加“关于 JSON 格式化器”菜单项
-        about_action = help_menu.addAction("关于 JSON 格式化器")
+        # 添加“关于 JSON 工具”菜单项
+        about_action = help_menu.addAction("关于 JSON 工具")
         about_action.triggered.connect(self.show_about_dialog)
 
         # ===== 搜索框（两栏）=====
@@ -1844,15 +1862,15 @@ class JsonFormatterWindow(QWidget):
         """
         显示关于对话框
         """
-        version = "v2.0.4"
+        version = "v2.0.5"
         info = f"""
-        <h3>JSON 格式化查看器 {version}</h3>
-        <p>桌面版 JSON 可视化工具。</p>
+        <h3>JSON 工具 {version}</h3>
+        <p>桌面版 JSON 工具。</p>
         <p>支持 JSON 格式化、压缩、树形展示等功能。</p>
         <p>作者：lawliet</p>
         """
         msg = QMessageBox(self)
-        msg.setWindowTitle("关于 JSON 格式化器")
+        msg.setWindowTitle("关于 JSON 工具")
         msg.setTextFormat(Qt.RichText)
         msg.setText(info)
         msg.setIcon(QMessageBox.Information)
