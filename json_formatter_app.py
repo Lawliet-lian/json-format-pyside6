@@ -924,6 +924,15 @@ class JsonFormatterWindow(QWidget):
         self.btn_compress = QPushButton("压缩")
         self.btn_save = QPushButton("保存")
         self.btn_copy = QPushButton("复制结果")
+        self.is_pinned = False
+
+        # “图钉”按钮用于切换窗口是否保持在最前面显示。
+        # 这里使用 QToolButton，可以在有限的标题区域里保持更紧凑的占位。
+        self.btn_pin_window = QToolButton()
+        self.btn_pin_window.setText("📌")
+        self.btn_pin_window.setCheckable(True)
+        self.btn_pin_window.setCursor(Qt.PointingHandCursor)
+        self.btn_pin_window.setToolTip("钉在屏幕上")
 
         # 布局切换按钮
         self.btn_layout_source_result = QPushButton("原始+结果")
@@ -937,6 +946,7 @@ class JsonFormatterWindow(QWidget):
         self.btn_compress.clicked.connect(self.compress_json)
         self.btn_save.clicked.connect(self.save_file)
         self.btn_copy.clicked.connect(self.copy_result)
+        self.btn_pin_window.toggled.connect(self.toggle_window_pin)
 
         # 绑定布局切换事件
         self.btn_layout_source_result.clicked.connect(lambda: self.switch_layout(True, False, True))
@@ -955,9 +965,10 @@ class JsonFormatterWindow(QWidget):
 
         btn_layout = QHBoxLayout()
         btn_layout.addWidget(self.title_label)
+        btn_layout.addWidget(self.btn_pin_window)
         
         # 增加一点间距，但不要用 stretch 把按钮顶到最右边
-        btn_layout.addSpacing(255)
+        btn_layout.addSpacing(215)
 
         # 功能按钮组
         for btn in [self.btn_format, self.btn_loose_parse, self.btn_compress, self.btn_copy, self.btn_save]:
@@ -1089,6 +1100,29 @@ class JsonFormatterWindow(QWidget):
                 self.apply_theme()
         super().changeEvent(event)
 
+    def toggle_window_pin(self, pinned):
+        """
+        切换窗口是否保持在桌面最前层显示。
+
+        这里直接切换 Qt.WindowStaysOnTopHint。
+        Qt 在修改顶层窗口 flag 后，通常需要重新 show 一次，
+        才能让新的窗口层级立即生效。
+        """
+        self.is_pinned = pinned
+        self.btn_pin_window.setToolTip("取消钉在屏幕上" if pinned else "钉在屏幕上")
+
+        # 记录当前几何信息，避免在重新应用窗口 flag 后出现位置偏移。
+        current_geometry = self.geometry()
+
+        # 只调整“始终置顶”这一项，不改动其他窗口标志。
+        self.setWindowFlag(Qt.WindowStaysOnTopHint, pinned)
+
+        # 重新显示窗口，让新的窗口层级立即生效。
+        self.show()
+        self.setGeometry(current_geometry)
+        self.raise_()
+        self.activateWindow()
+
     def apply_theme(self):
         """
         应用当前主题
@@ -1214,6 +1248,30 @@ class JsonFormatterWindow(QWidget):
                         background-color: {theme['header_border']};
                     }}
                 """)
+
+            # 单独设置图钉按钮样式：
+            # 未选中时保持和普通按钮一致；
+            # 选中时使用更明显的背景色，提示当前窗口处于置顶状态。
+            self.btn_pin_window.setStyleSheet(f"""
+                QToolButton {{
+                    background-color: {theme['input_bg']};
+                    color: {theme['text_color']};
+                    border: 1px solid {theme['border_color']};
+                    border-radius: 4px;
+                    padding: 5px 10px;
+                }}
+                QToolButton:hover {{
+                    background-color: {theme['btn_hover']};
+                }}
+                QToolButton:pressed {{
+                    background-color: {theme['header_border']};
+                }}
+                QToolButton:checked {{
+                    background-color: {theme['highlight']['highlight_bg']};
+                    color: {theme['highlight']['highlight_fg']};
+                    border: 1px solid {theme['highlight']['highlight_bg']};
+                }}
+            """)
         finally:
             self._is_applying_theme = False
 
