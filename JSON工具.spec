@@ -21,7 +21,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='JSON格式化',
+    name='JSON工具',
     debug=False,
     bootloader_ignore_signals=False,
     strip=True,
@@ -41,15 +41,13 @@ coll = COLLECT(
     strip=True,
     upx=True,
     upx_exclude=[],
-    name='JSON格式化',
+    name='JSON工具',
 )
 app = BUNDLE(
     coll,
-    name='JSON格式化.app',
+    name='JSON工具.app',
     icon='icon.icns',
     bundle_identifier='com.lawliet.jsonformatter',
-    # macOS Finder 和“显示简介”里的版本号来自 Info.plist。
-    # 如果这里不显式写入版本字段，某些构建结果会显示默认值 0.0.0。
     info_plist={
         'CFBundleShortVersionString': '2.0.5',
         'CFBundleVersion': '2.0.5',
