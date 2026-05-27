@@ -878,6 +878,11 @@ class JsonFormatterWindow(QWidget):
     windows = []         # 所有窗口实例
     tool_windows = []    # 其他工具窗口实例
     window_count = 0     # 窗口计数，用于区分标题
+    SETTINGS_ORG = "lawliet"
+    SETTINGS_APP = "json-format-pyside6"
+    SETTINGS_GROUP = "json_formatter_window_layout"
+    DEFAULT_WINDOW_WIDTH = 1200
+    DEFAULT_WINDOW_HEIGHT = 700
 
     def __init__(self):
         super().__init__()
@@ -928,7 +933,6 @@ class JsonFormatterWindow(QWidget):
             self.input_edit,
             expanded_text="❮",
             collapsed_text="❯",
-            show_header=False,
         )
         
         # 中间：JSON 树
@@ -942,7 +946,6 @@ class JsonFormatterWindow(QWidget):
             self.output_edit,
             expanded_text="❯",
             collapsed_text="❮",
-            show_header=False,
         )
 
         self.splitter = QSplitter()
@@ -979,6 +982,7 @@ class JsonFormatterWindow(QWidget):
         self.btn_layout_source_tree = QPushButton("原始+树")
         self.btn_layout_all = QPushButton("三栏布局")
         self.btn_layout_tree_result = QPushButton("树+结果")
+        self.btn_restore_default_layout = QPushButton("恢复默认布局")
 
         # 绑定按钮事件
         self.btn_format.clicked.connect(self.format_json)
@@ -987,6 +991,7 @@ class JsonFormatterWindow(QWidget):
         self.btn_save.clicked.connect(self.save_file)
         self.btn_copy.clicked.connect(self.copy_result)
         self.btn_pin_window.toggled.connect(self.toggle_window_pin)
+        self.btn_restore_default_layout.clicked.connect(self.restore_default_layout)
 
         # 绑定布局切换事件
         self.btn_layout_source_result.clicked.connect(lambda: self.switch_layout(True, False, True))
@@ -1045,8 +1050,13 @@ class JsonFormatterWindow(QWidget):
         second_row_layout.addStretch(1)
 
         # 布局切换按钮组
-        for btn in [self.btn_layout_source_result, self.btn_layout_source_tree, 
-                    self.btn_layout_all, self.btn_layout_tree_result]:
+        for btn in [
+            self.btn_layout_source_result,
+            self.btn_layout_source_tree,
+            self.btn_layout_all,
+            self.btn_layout_tree_result,
+            self.btn_restore_default_layout,
+        ]:
             font = btn.font()
             # font.setBold(True) # 布局按钮是否加粗可选，这里保持一致性也可以加粗
             btn.setFont(font)
@@ -1063,6 +1073,16 @@ class JsonFormatterWindow(QWidget):
         main_layout.addLayout(top_controls_layout)
         main_layout.addWidget(self.splitter)
         self.setLayout(main_layout)
+
+        # 使用延迟保存，避免在拖动 splitter 或连续调整窗口大小时频繁写入配置。
+        self.layout_save_timer = QtCore.QTimer(self)
+        self.layout_save_timer.setSingleShot(True)
+        self.layout_save_timer.timeout.connect(self.save_layout_state)
+        self.splitter.splitterMoved.connect(self.schedule_layout_save)
+
+        # 在事件循环启动后恢复上次布局。
+        # 这样可以确保 splitter 已经有了有效宽度，恢复比例时更稳定。
+        QtCore.QTimer.singleShot(0, self.restore_layout_state)
 
         # ====== 菜单栏 ======
         menu_bar = QMenuBar()
@@ -1899,6 +1919,103 @@ class JsonFormatterWindow(QWidget):
         sizes.append(get_width(show_right))
         
         self.splitter.setSizes(sizes)
+        self.schedule_layout_save()
+
+    def settings(self):
+        # 将布局配置统一写入固定的应用配置域，方便下次启动时恢复。
+        return QtCore.QSettings(self.SETTINGS_ORG, self.SETTINGS_APP)
+
+    def default_splitter_sizes(self):
+        # 默认恢复为真正的三栏布局，三栏平均分配可用宽度。
+        total_width = self.DEFAULT_WINDOW_WIDTH
+        return [total_width // 3, total_width // 3, total_width // 3]
+
+    def schedule_layout_save(self):
+        # 连续调整窗口大小或 splitter 时只在短暂停顿后写一次配置，减少无意义写盘。
+        self.layout_save_timer.start(300)
+
+    def save_layout_state(self):
+        settings = self.settings()
+        settings.beginGroup(self.SETTINGS_GROUP)
+
+        # 记录窗口位置、窗口大小、三栏显示状态以及 splitter 实际比例。
+        settings.setValue("x", self.x())
+        settings.setValue("y", self.y())
+        settings.setValue("width", self.width())
+        settings.setValue("height", self.height())
+        settings.setValue("left_expanded", self.left_panel.is_expanded)
+        settings.setValue("middle_expanded", self.middle_panel.is_expanded)
+        settings.setValue("right_expanded", self.right_panel.is_expanded)
+        settings.setValue("splitter_sizes", self.splitter.sizes())
+
+        settings.endGroup()
+        settings.sync()
+
+    def restore_layout_state(self):
+        settings = self.settings()
+        settings.beginGroup(self.SETTINGS_GROUP)
+
+        width_value = settings.value("width")
+        height_value = settings.value("height")
+
+        # 没有历史布局时，直接回到默认的三栏布局和默认窗口大小。
+        if width_value is None or height_value is None:
+            settings.endGroup()
+            self.restore_default_layout(save_after_restore=False)
+            return
+
+        x_value = settings.value("x")
+        y_value = settings.value("y")
+        splitter_sizes = settings.value("splitter_sizes")
+
+        # QSettings 取出的值可能是字符串或字符串列表，这里统一转换成整数列表。
+        normalized_sizes = []
+        if isinstance(splitter_sizes, list):
+            normalized_sizes = [int(size) for size in splitter_sizes]
+        elif isinstance(splitter_sizes, str) and splitter_sizes.strip():
+            normalized_sizes = [int(part) for part in splitter_sizes.split(",") if part.strip()]
+
+        self.resize(int(width_value), int(height_value))
+        if x_value is not None and y_value is not None:
+            self.move(int(x_value), int(y_value))
+
+        self.left_panel.set_expanded(str(settings.value("left_expanded", True)).lower() in ("true", "1"))
+        self.middle_panel.set_expanded(str(settings.value("middle_expanded", False)).lower() in ("true", "1"))
+        self.right_panel.set_expanded(str(settings.value("right_expanded", True)).lower() in ("true", "1"))
+
+        settings.endGroup()
+
+        if len(normalized_sizes) == 3:
+            self.splitter.setSizes(normalized_sizes)
+        else:
+            # 历史配置不完整时，回退到默认三栏比例，避免界面布局异常。
+            self.splitter.setSizes(self.default_splitter_sizes())
+
+    def restore_default_layout(self, _checked=False, save_after_restore=True):
+        # 恢复到应用默认布局：
+        # 1. 窗口大小恢复到默认值
+        # 2. 三栏全部展开
+        # 3. splitter 恢复成均分比例
+        self.resize(self.DEFAULT_WINDOW_WIDTH, self.DEFAULT_WINDOW_HEIGHT)
+        self.left_panel.set_expanded(True)
+        self.middle_panel.set_expanded(True)
+        self.right_panel.set_expanded(True)
+        self.splitter.setSizes(self.default_splitter_sizes())
+
+        if save_after_restore:
+            self.save_layout_state()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self.schedule_layout_save()
+
+    def moveEvent(self, event):
+        super().moveEvent(event)
+        self.schedule_layout_save()
+
+    def closeEvent(self, event):
+        self.save_layout_state()
+        super().closeEvent(event)
 
     def open_file(self):
         file_name, _ = QFileDialog.getOpenFileName(self, "打开 JSON 文件", "", "JSON 文件 (*.json)")
