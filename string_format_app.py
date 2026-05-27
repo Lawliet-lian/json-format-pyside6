@@ -35,26 +35,39 @@ class FormatterWindow(QWidget):
         self.copy_btn.clicked.connect(self.copy_output)
         self.clear_btn.clicked.connect(self.clear_all)
 
+        # 顶部按钮区压缩边距和间距，减少第一行占用的垂直空间。
         top_layout = QHBoxLayout()
+        top_layout.setContentsMargins(0, 0, 0, 0)
+        top_layout.setSpacing(6)
         top_layout.addWidget(self.basic_format_btn)
         top_layout.addWidget(self.db_format_btn)
         top_layout.addWidget(self.copy_btn)
         top_layout.addWidget(self.clear_btn)
         top_layout.addStretch()
 
+        # 标题和文本框尽量贴近，减少第二行和第三行之间的空白。
         left_layout = QVBoxLayout()
+        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setSpacing(2)
         left_layout.addWidget(QLabel("输入"))
         left_layout.addWidget(self.input_edit)
 
         right_layout = QVBoxLayout()
+        right_layout.setContentsMargins(0, 0, 0, 0)
+        right_layout.setSpacing(2)
         right_layout.addWidget(QLabel("输出"))
         right_layout.addWidget(self.output_edit)
 
         body_layout = QHBoxLayout()
+        body_layout.setContentsMargins(0, 0, 0, 0)
+        body_layout.setSpacing(6)
         body_layout.addLayout(left_layout, 1)
         body_layout.addLayout(right_layout, 1)
 
+        # 主布局整体收紧，让第一行、第二行、第三行更贴近。
         main_layout = QVBoxLayout()
+        main_layout.setContentsMargins(6, 6, 6, 6)
+        main_layout.setSpacing(4)
         main_layout.addLayout(top_layout)
         main_layout.addLayout(body_layout)
         self.setLayout(main_layout)

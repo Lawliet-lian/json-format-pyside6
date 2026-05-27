@@ -18,6 +18,7 @@ import json
 import re
 import sys
 from string_format_app import FormatterWindow
+from timestamp_converter_app import TimestampConverterWindow
 
 # ====== 主题配置 ======
 THEMES = {
@@ -577,13 +578,24 @@ class CollapsiblePanel(QWidget):
     """
     包含标题栏和折叠按钮的容器组件
     """
-    def __init__(self, title="", content_widget=None, expanded_text="❮", collapsed_text="❯", parent=None):
+    def __init__(
+        self,
+        title="",
+        content_widget=None,
+        expanded_text="❮",
+        collapsed_text="❯",
+        parent=None,
+        show_header=True,
+    ):
         super().__init__(parent)
         self.content_widget = content_widget
         self.is_expanded = True
         self.expanded_text = expanded_text
         self.collapsed_text = collapsed_text
         self.theme = THEMES["light"]
+        # 某些面板只想保留内容区，不想显示标题栏；
+        # 这里保留一个可配置开关，用于彻底移除标题栏占用的高度。
+        self.show_header = show_header
         
         # 主布局
         self.main_layout = QVBoxLayout()
@@ -623,6 +635,12 @@ class CollapsiblePanel(QWidget):
         self.header_layout.addWidget(self.title_label)
         self.header_layout.addStretch()
         self.header_layout.addWidget(self.toggle_btn)
+
+        # 不显示标题栏时，直接把整个 header 隐藏并压成 0 高度，
+        # 这样不仅看不到标题，也不会留下任何可见空隙。
+        if not self.show_header:
+            self.header.setFixedHeight(0)
+            self.header.hide()
         
         self.main_layout.addWidget(self.header)
         
@@ -639,6 +657,9 @@ class CollapsiblePanel(QWidget):
 
     def set_theme(self, theme_config):
         self.theme = theme_config
+        if not self.show_header:
+            self.header.setStyleSheet("QWidget { border: none; background: transparent; }")
+            return
         self.header.setStyleSheet(f"""
             QWidget {{
                 background-color: {self.theme['header_bg']}; 
@@ -665,36 +686,43 @@ class CollapsiblePanel(QWidget):
 
     def set_expanded(self, expanded):
         self.is_expanded = expanded
-        self.toggle_btn.setChecked(expanded)
+        if self.show_header:
+            self.toggle_btn.setChecked(expanded)
         
         if self.is_expanded:
             if self.content_widget:
                 self.content_widget.show()
-            self.title_label.show()
+            if self.show_header:
+                self.title_label.show()
             self.setMaximumWidth(16777215) # QWIDGETSIZE_MAX
-            self.toggle_btn.setText(self.expanded_text)
+            if self.show_header:
+                self.toggle_btn.setText(self.expanded_text)
             self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
             # 恢复 header 样式
-            self.header.setStyleSheet(f"""
-                QWidget {{
-                    background-color: {self.theme['header_bg']}; 
-                    border-bottom: 1px solid {self.theme['header_border']};
-                }}
-            """)
+            if self.show_header:
+                self.header.setStyleSheet(f"""
+                    QWidget {{
+                        background-color: {self.theme['header_bg']}; 
+                        border-bottom: 1px solid {self.theme['header_border']};
+                    }}
+                """)
         else:
             if self.content_widget:
                 self.content_widget.hide()
-            self.title_label.hide()
+            if self.show_header:
+                self.title_label.hide()
             self.setMaximumWidth(16) # 收缩后的宽度，极致压缩
-            self.toggle_btn.setText(self.collapsed_text)
+            if self.show_header:
+                self.toggle_btn.setText(self.collapsed_text)
             self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
             # 收缩时隐藏 header 背景，使其看起来更像一条线
-            self.header.setStyleSheet(f"""
-                QWidget {{
-                    background-color: {self.theme['header_bg']}; 
-                    border-bottom: none;
-                }}
-            """)
+            if self.show_header:
+                self.header.setStyleSheet(f"""
+                    QWidget {{
+                        background-color: {self.theme['header_bg']}; 
+                        border-bottom: none;
+                    }}
+                """)
 
 
 # ====== 可双击修改的标题标签 ======
@@ -895,7 +923,13 @@ class JsonFormatterWindow(QWidget):
 
         # ====== 三栏布局 ======
         # 左侧：原始 JSON
-        self.left_panel = CollapsiblePanel("原始 JSON", self.input_edit, expanded_text="❮", collapsed_text="❯")
+        self.left_panel = CollapsiblePanel(
+            "原始 JSON",
+            self.input_edit,
+            expanded_text="❮",
+            collapsed_text="❯",
+            show_header=False,
+        )
         
         # 中间：JSON 树
         self.middle_panel = CollapsiblePanel("JSON 树", self.output_tree, expanded_text="❯", collapsed_text="❮")
@@ -903,7 +937,13 @@ class JsonFormatterWindow(QWidget):
         self.middle_panel.set_expanded(False)
 
         # 右侧：JSON 结果
-        self.right_panel = CollapsiblePanel("JSON 结果", self.output_edit, expanded_text="❯", collapsed_text="❮")
+        self.right_panel = CollapsiblePanel(
+            "JSON 结果",
+            self.output_edit,
+            expanded_text="❯",
+            collapsed_text="❮",
+            show_header=False,
+        )
 
         self.splitter = QSplitter()
         self.splitter.addWidget(self.left_panel)
@@ -961,7 +1001,8 @@ class JsonFormatterWindow(QWidget):
         font.setPointSize(16)
         font.setBold(True)
         self.title_label.setFont(font)
-        self.title_label.setContentsMargins(5, 0, 0, 0)
+        # 标题左侧只保留很小的起始留白，避免第一行被额外撑高。
+        self.title_label.setContentsMargins(0, 0, 0, 0)
 
         # 顶部操作区改成两行布局：
         # 第一行放标题、图钉按钮和主要功能按钮；
@@ -970,11 +1011,13 @@ class JsonFormatterWindow(QWidget):
         # 让主窗口在水平方向上更容易缩放。
         top_controls_layout = QVBoxLayout()
         top_controls_layout.setContentsMargins(0, 0, 0, 0)
-        top_controls_layout.setSpacing(4)
+        # 顶部两行之间进一步压缩，让第一行和第二行尽量贴近。
+        top_controls_layout.setSpacing(0)
 
         first_row_layout = QHBoxLayout()
         first_row_layout.setContentsMargins(0, 0, 0, 0)
-        first_row_layout.setSpacing(6)
+        # 第一行按钮横向间距略收紧，减少整行视觉体积。
+        first_row_layout.setSpacing(2)
         first_row_layout.addWidget(self.title_label)
         first_row_layout.addStretch(1)
 
@@ -991,12 +1034,13 @@ class JsonFormatterWindow(QWidget):
 
         second_row_layout = QHBoxLayout()
         second_row_layout.setContentsMargins(0, 0, 0, 0)
-        second_row_layout.setSpacing(6)
+        # 第二行也同步缩小间距，让第二行和第三块内容区更紧凑。
+        second_row_layout.setSpacing(2)
         # 将图钉按钮放到第二行左侧，这样视觉上就在主标题正下方。
         # 第二行剩余空间再用弹性留白隔开，右侧继续放布局切换按钮。
         # 这里增加一个很小的左侧留白，让图钉按钮不要紧贴最左边，
         # 并尽量与标题文字的起始位置保持对齐。
-        second_row_layout.addSpacing(5)
+        second_row_layout.addSpacing(0)
         second_row_layout.addWidget(self.btn_pin_window)
         second_row_layout.addStretch(1)
 
@@ -1013,8 +1057,9 @@ class JsonFormatterWindow(QWidget):
         
         # ====== 主布局 ======
         main_layout = QVBoxLayout()
-        main_layout.setContentsMargins(2, 2, 2, 2)  # 左上右下边距，顶部/底部间距缩小
-        main_layout.setSpacing(2)  # 垂直间距缩小
+        # 主布局边距与垂直间距继续压缩，使第一行、第二行、第三行更紧紧相邻。
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
         main_layout.addLayout(top_controls_layout)
         main_layout.addWidget(self.splitter)
         self.setLayout(main_layout)
@@ -1027,6 +1072,8 @@ class JsonFormatterWindow(QWidget):
         new_action.triggered.connect(JsonFormatterWindow.new_window_static)
         string_tool_action = file_menu.addAction("打开字符串格式化窗口")
         string_tool_action.triggered.connect(self.open_string_formatter_window)
+        timestamp_tool_action = file_menu.addAction("打开时间戳转换窗口")
+        timestamp_tool_action.triggered.connect(self.open_timestamp_converter_window)
         open_action = file_menu.addAction("打开 JSON 文件")
         open_action.triggered.connect(self.open_file)
         
@@ -1567,6 +1614,11 @@ class JsonFormatterWindow(QWidget):
 
     def open_string_formatter_window(self):
         win = FormatterWindow()
+        win.show()
+        JsonFormatterWindow.tool_windows.append(win)
+
+    def open_timestamp_converter_window(self):
+        win = TimestampConverterWindow()
         win.show()
         JsonFormatterWindow.tool_windows.append(win)
 
