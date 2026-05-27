@@ -982,7 +982,7 @@ class JsonFormatterWindow(QWidget):
         self.btn_layout_source_tree = QPushButton("原始+树")
         self.btn_layout_all = QPushButton("三栏布局")
         self.btn_layout_tree_result = QPushButton("树+结果")
-        self.btn_restore_default_layout = QPushButton("恢复默认布局")
+        self.btn_restore_default_layout = QPushButton("默认")
 
         # 绑定按钮事件
         self.btn_format.clicked.connect(self.format_json)
