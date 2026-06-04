@@ -1567,12 +1567,88 @@ class JsonFormatterWindow(QWidget):
             normalized
         )
 
+        # 仅在“宽松解析”链路中兜底修复字符串里的非法单反斜杠。
+        # 例如业务文本里的 "\新版"、"\11CM" 在标准 JSON 中都属于非法转义，
+        # 这里将它们修复为 "\\新版"、"\\11CM"，以便后续 json.loads 可以接受。
+        normalized = self.escape_invalid_backslashes_in_strings(normalized)
+
         previous = None
         while previous != normalized:
             previous = normalized
             normalized = re.sub(r',(\s*[}\]])', r'\1', normalized)
 
         return normalized
+
+    def escape_invalid_backslashes_in_strings(self, text: str) -> str:
+        """
+        仅用于“宽松解析”按钮对应的预处理阶段。
+
+        处理目标：
+        - 只扫描 JSON 双引号字符串内部的内容；
+        - 如果遇到反斜杠后面不是合法 JSON 转义字符，
+          就把这个单反斜杠补成双反斜杠；
+        - 已经合法的转义（如 \\n、\\t、\\"、\\\\、\\u4E2D）保持不变。
+
+        这样可以兼容业务文本中常见的路径分隔、规格分段等写法，
+        同时避免影响普通“格式化”按钮的严格 JSON 解析行为。
+        """
+        result = []
+        in_string = False
+        index = 0
+        valid_escape_chars = {'"', '\\', '/', 'b', 'f', 'n', 'r', 't'}
+
+        while index < len(text):
+            char = text[index]
+
+            if not in_string:
+                result.append(char)
+                if char == '"':
+                    in_string = True
+                index += 1
+                continue
+
+            if char == '"':
+                result.append(char)
+                in_string = False
+                index += 1
+                continue
+
+            if char != '\\':
+                result.append(char)
+                index += 1
+                continue
+
+            # 字符串内遇到反斜杠时，先判断它是否构成合法 JSON 转义。
+            next_index = index + 1
+            if next_index >= len(text):
+                # 末尾孤立反斜杠无法组成合法转义，补成字面量反斜杠。
+                result.append('\\\\')
+                index += 1
+                continue
+
+            next_char = text[next_index]
+            if next_char in valid_escape_chars:
+                result.append(char)
+                result.append(next_char)
+                index += 2
+                continue
+
+            if next_char == 'u':
+                # \u 后面必须紧跟 4 位十六进制字符，否则也视为非法转义并转义反斜杠本身。
+                unicode_digits = text[next_index + 1: next_index + 5]
+                if len(unicode_digits) == 4 and re.fullmatch(r'[0-9a-fA-F]{4}', unicode_digits):
+                    result.append(char)
+                    result.append(next_char)
+                    result.append(unicode_digits)
+                    index += 6
+                    continue
+
+            # 这里说明是非法转义，例如 \版、\1、\x。
+            # 只把当前反斜杠补成双反斜杠，后面的字符按原样继续处理。
+            result.append('\\\\')
+            index += 1
+
+        return ''.join(result)
 
     def complete_json_structure(self, text: str) -> str:
         stack = []
