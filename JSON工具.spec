@@ -29,10 +29,10 @@ exe = EXE(
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
-    target_arch='arm64',
+    target_arch='x86_64',
     codesign_identity=None,
     entitlements_file=None,
-    icon=['icon.icns'],
+    icon=['icon-dark.icns'],
 )
 coll = COLLECT(
     exe,
@@ -46,10 +46,6 @@ coll = COLLECT(
 app = BUNDLE(
     coll,
     name='JSON工具.app',
-    icon='icon.icns',
+    icon='icon-dark.icns',
     bundle_identifier='com.lawliet.jsonformatter',
-    info_plist={
-        'CFBundleShortVersionString': '2.0.5',
-        'CFBundleVersion': '2.0.5',
-    },
 )

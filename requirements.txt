@@ -1,1 +1,4 @@
 pyside6~=6.10.0
+# macOS 原生窗口桥接（orderOut / makeKeyAndOrderFront），用于多窗口管理
+pyobjc-core>=10.0; sys_platform == "darwin"
+pyobjc-framework-Cocoa>=10.0; sys_platform == "darwin"

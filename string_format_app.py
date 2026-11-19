@@ -110,6 +110,7 @@ class FormatterWindow(QWidget):
                 )
             ):
                 value = value[1:-1]
+            value = value.replace("'", "''")
             value = f"'{value}'"
             normalized.append(value)
 
@@ -128,6 +129,26 @@ class FormatterWindow(QWidget):
 
     def copy_output(self) -> None:
         QApplication.clipboard().setText(self.output_edit.toPlainText())
+
+    def closeEvent(self, event) -> None:
+        """
+        红叉关闭：
+        - 若本窗口已被窗口管理器登记（集成到多窗口应用中）：
+          拦截 close，由管理器收起窗口并保留实例；
+        - 若独立运行（未登记）：保持默认关闭销毁行为。
+        """
+        try:
+            from window_manager import WindowManager
+
+            manager = WindowManager.instance()
+            if not manager.is_quitting and manager.id_for_window(self) is not None:
+                event.ignore()
+                manager.request_close_window(self)
+                return
+        except Exception:
+            # 窗口管理器不可用时回退默认行为，不影响窗口关闭
+            pass
+        super().closeEvent(event)
 
 
 def main() -> None:

@@ -195,7 +195,8 @@ class TimestampConverterWindow(QWidget):
             elif unit_mode == "s":
                 seconds = num
             else:
-                seconds = num / 1000.0 if abs(num) >= 1_000_000_000_000 else num
+                # 常见的毫秒时间戳在 2001 年之前也有 12 位。
+                seconds = num / 1000.0 if abs(num) >= 100_000_000_000 else num
 
             try:
                 dt = datetime.fromtimestamp(seconds, tz=tzinfo)
@@ -237,6 +238,26 @@ class TimestampConverterWindow(QWidget):
 
     def copy_output(self) -> None:
         QApplication.clipboard().setText(self.output_edit.toPlainText())
+
+    def closeEvent(self, event) -> None:
+        """
+        红叉关闭：
+        - 若本窗口已被窗口管理器登记（集成到多窗口应用中）：
+          拦截 close，由管理器收起窗口并保留实例；
+        - 若独立运行（未登记）：保持默认关闭销毁行为。
+        """
+        try:
+            from window_manager import WindowManager
+
+            manager = WindowManager.instance()
+            if not manager.is_quitting and manager.id_for_window(self) is not None:
+                event.ignore()
+                manager.request_close_window(self)
+                return
+        except Exception:
+            # 窗口管理器不可用时回退默认行为，不影响窗口关闭
+            pass
+        super().closeEvent(event)
 
 
 def main() -> None:

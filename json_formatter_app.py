@@ -5,92 +5,129 @@ from PySide6.QtWidgets import (
     QPushButton, QFileDialog, QMessageBox, QLabel,
     QTreeWidget, QTreeWidgetItem, QMenuBar, QMenu,
     QPlainTextEdit, QTextEdit, QSplitter, QLineEdit,
-    QToolButton, QSizePolicy, QTreeWidgetItemIterator,
-    QInputDialog, QStyledItemDelegate, QStyleOptionViewItem, QStyle
+    QToolButton, QSizePolicy,
+    QInputDialog, QStyledItemDelegate, QStyleOptionViewItem, QStyle, QFrame
 )
 from PySide6.QtGui import (
     QFont, QColor, QPainter, QTextFormat, QPalette,
     QFontDatabase, QSyntaxHighlighter, QTextCharFormat,
-    QTextCursor, QShortcut, QKeySequence, QTextDocument
+    QTextCursor, QKeySequence, QTextDocument, QIcon, QPixmap, QPen, QPainterPath, QAction
 )
 
+import html
 import json
 import re
 import sys
 from string_format_app import FormatterWindow
 from timestamp_converter_app import TimestampConverterWindow
+# 多窗口管理器：统一维护稳定 UUID 索引、「窗口」菜单与多选激活语义
+from window_manager import WindowManager
 
 # ====== 主题配置 ======
 THEMES = {
     "light": {
-        "window_bg": "#FFFFFF",
-        "text_color": "#000000",
+        "window_bg": "#F0F2F6",
+        "text_color": "#242A38",
         "input_bg": "#FFFFFF",
         "tree_bg": "#FFFFFF",
-        "output_bg": "#FFFFFF",
-        "header_bg": "#f0f0f0",
-        "header_border": "#dcdcdc",
-        "header_text": "#000000",
-        "btn_bg": "transparent",
-        "btn_hover": "#e0e0e0",
-        "btn_text": "#000000",
-        "splitter_handle": "#dcdcdc",
-        "placeholder": "#969696",
-        "line_num_bg": "#f0f0f0",
-        "line_num_text": "#808080",
-        "current_line": "#e8e8e8",
-        "selection_bg": "#a5d6a7",
-        "border_color": "#dcdcdc",
+        "header_bg": "#F8F9FC",
+        "header_border": "#E5E9F0",
+        "header_text": "#343D50",
+        "btn_bg": "#FFFFFF",
+        "btn_hover": "#EBEEF6",
+        "btn_text": "#354057",
+        "accent": "#4B47CB",
+        "accent_hover": "#3E3AB5",
+        "accent_soft": "#E9E8FB",
+        "on_accent": "#FFFFFF",
+        "placeholder": "#69758A",
+        "line_num_bg": "#F7F8FC",
+        "line_num_text": "#68748C",
+        "current_line": "#F0F2FD",
+        "selection_bg": "#DCE0FF",
+        "border_color": "#DCE2EC",
+        "tree_value": "#56637B",
+        "warning_bg": "#FFF4DB",
+        "warning_text": "#794A10",
         "highlight": {
-            "key": "#D500F9",       # 鲜艳紫
-            "string": "#00C853",    # 鲜艳绿
-            "number": "#FF0000",    # 红色
-            "bool": "#FF1493",      # 深粉
-            "null": "#FFD700",      # 金色
-            "highlight_bg": "#4b5cc4",
-            "highlight_fg": "#ffffff",
-            "search_match": "#00FF00",
-            "search_current": "#FF0000" # 红色
+            "key": "#5543B0",
+            "string": "#08765D",
+            "number": "#A04E1A",
+            "bool": "#963F79",
+            "null": "#963F79",
+            "search_match": "#F9D99B",
+            "search_current": "#4B47CB",
+            "highlight_fg": "#FFFFFF",
         },
-        "scrollbar_handle": "#c1c1c1",
-        "scrollbar_handle_hover": "#a8a8a8",
-        "scrollbar_bg": "#f0f0f0"
+        "scrollbar_handle": "#C2CAD8",
+        "scrollbar_handle_hover": "#9EA9BC",
     },
     "dark": {
         "window_bg": "#2b2b2b",
         "text_color": "#dcdcdc",
         "input_bg": "#1e1e1e",
         "tree_bg": "#1e1e1e",
-        "output_bg": "#1e1e1e",
         "header_bg": "#333333",
         "header_border": "#444444",
         "header_text": "#dcdcdc",
-        "btn_bg": "transparent",
+        "btn_bg": "#1e1e1e",
         "btn_hover": "#444444",
         "btn_text": "#dcdcdc",
-        "splitter_handle": "#444444",
+        "accent": "#264f78",
+        "accent_hover": "#315f8c",
+        "accent_soft": "#2d2d30",
+        "on_accent": "#ffffff",
         "placeholder": "#666666",
         "line_num_bg": "#2d2d2d",
         "line_num_text": "#858585",
         "current_line": "#2d2d30",
         "selection_bg": "#264f78",
         "border_color": "#3e3e42",
+        "tree_value": "#62b37a",
+        "warning_bg": "#333333",
+        "warning_text": "#dcdcdc",
         "highlight": {
-            "key": "#40C4FF",       # 亮青
-            "string": "#69F0AE",    # 荧光绿
-            "number": "#FF8C00",    # 深橙色
-            "bool": "#FF1493",      # 鲜艳粉
-            "null": "#FF1744",      # 鲜艳红
-            "highlight_bg": "#264f78",
-            "highlight_fg": "#ffffff",
+            "key": "#40C4FF",
+            "string": "#69F0AE",
+            "number": "#FF8C00",
+            "bool": "#FF1493",
+            "null": "#FF1744",
             "search_match": "#6A7B50",
-            "search_current": "#FF0000" # 红色
+            "search_current": "#FF0000",
+            "highlight_fg": "#ffffff",
         },
         "scrollbar_handle": "#424242",
         "scrollbar_handle_hover": "#4f4f4f",
-        "scrollbar_bg": "#2d2d2d"
-    }
+    },
 }
+
+
+def toolbar_icon(name, color):
+    pixmap = QPixmap(32, 32)
+    pixmap.setDevicePixelRatio(2)
+    pixmap.fill(Qt.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.Antialiasing)
+    pen = QPen(QColor(color), 1.4, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin)
+    painter.setPen(pen)
+    if name == "search":
+        painter.drawEllipse(QtCore.QRectF(2.8, 2.8, 7.8, 7.8))
+        painter.drawLine(QtCore.QPointF(9.5, 9.5), QtCore.QPointF(13.4, 13.4))
+    else:
+        path = QPainterPath(QtCore.QPointF(10.0, 2.3))
+        path.lineTo(13.7, 6.0)
+        path.lineTo(11.6, 6.4)
+        path.lineTo(9.3, 8.7)
+        path.lineTo(8.9, 11.6)
+        path.lineTo(4.4, 7.1)
+        path.lineTo(7.3, 6.7)
+        path.lineTo(9.6, 4.4)
+        path.closeSubpath()
+        painter.drawPath(path)
+        painter.drawLine(QtCore.QPointF(6.6, 9.4), QtCore.QPointF(2.8, 13.2))
+    painter.end()
+    return QIcon(pixmap)
+
 
 # ====== 行号编辑器 ======
 class LineNumberArea(QWidget):
@@ -119,6 +156,9 @@ class CodeEditor(QPlainTextEdit):
     支持行号显示的 QPlainTextEdit
     并实现 placeholder 功能
     """
+    LINE_NUMBER_PADDING = 12
+    FOLD_CONTROL_WIDTH = 8
+
     def __init__(self, placeholder=""):
         super().__init__()
         self.placeholder = placeholder
@@ -130,11 +170,8 @@ class CodeEditor(QPlainTextEdit):
         self.folding_enabled = False
         self.fold_regions = {}
         self.folded_starts = set()
-        self.fold_placeholder_blocks = {}
         self.skip_map = {}  # 优化：用于在绘制行号时快速跳过大量隐藏块
-        self._updating_fold_placeholder = False
-        self.fold_gutter_width = 7
-        self.fold_symbol_gap = 5
+        self.shared_line_number_digits = 1
 
         # 绑定信号
         self.blockCountChanged.connect(self.update_line_number_area_width)  # 块数量变化时更新宽度
@@ -142,9 +179,10 @@ class CodeEditor(QPlainTextEdit):
         self.cursorPositionChanged.connect(self.highlight_current_line)  # 光标行高亮
         self.textChanged.connect(self.rebuild_fold_regions)
 
-        self.update_line_number_area_width(0)
+        self.update_line_number_area_width()
         self.highlight_current_line()
         self.setLineWrapMode(QPlainTextEdit.NoWrap)  # 不自动换行
+        self.document().setDocumentMargin(9)
 
     def set_theme(self, theme_config):
         self.theme = theme_config
@@ -158,27 +196,25 @@ class CodeEditor(QPlainTextEdit):
                 background-color: {self.theme['input_bg']};
                 color: {self.theme['text_color']};
                 selection-background-color: {self.theme['selection_bg']};
-                border: 1px solid {self.theme['border_color']};
-                border-radius: 4px;
+                border: none;
             }}
         """)
 
     # ====== 行号宽度计算 ======
-    def fold_area_width(self):
-        if not self.folding_enabled:
-            return 0
-        symbol_width = self.fontMetrics().horizontalAdvance("▶")
-        return max(self.fold_gutter_width, symbol_width + self.fold_symbol_gap)
-
     def line_number_area_width(self):
-        digits = len(str(max(1, self.blockCount())))
-        fold_width = self.fold_area_width()
-        space = 6 + self.fontMetrics().horizontalAdvance('9') * digits + fold_width
-        return space
+        digits = max(self.shared_line_number_digits, len(str(self.blockCount())))
+        return self.LINE_NUMBER_PADDING + self.fontMetrics().horizontalAdvance("9") * digits
 
-    def update_line_number_area_width(self, _):
-        # 设置编辑器左侧边距，为行号留空间
-        self.setViewportMargins(self.line_number_area_width(), 0, 0, 0)
+    def set_shared_line_number_digits(self, digits):
+        self.shared_line_number_digits = digits
+        self.update_line_number_area_width()
+
+    def update_line_number_area_width(self):
+        width = self.line_number_area_width()
+        if self.viewportMargins().left() != width:
+            self.setViewportMargins(width, 0, 0, 0)
+        cr = self.contentsRect()
+        self.lineNumberArea.setGeometry(cr.left(), cr.top(), width, cr.height())
 
     def update_line_number_area(self, rect, dy):
         # 滚动或更新时刷新行号
@@ -186,16 +222,15 @@ class CodeEditor(QPlainTextEdit):
             self.lineNumberArea.scroll(0, dy)
         else:
             self.lineNumberArea.update(0, rect.y(), self.line_number_area_width(), rect.height())
-        if rect.contains(self.viewport().rect()):
-            self.update_line_number_area_width(0)
 
     def resizeEvent(self, event):
-        # 调整编辑器大小时，重新布局行号区域
         super().resizeEvent(event)
-        cr = self.contentsRect()
-        self.lineNumberArea.setGeometry(
-            QtCore.QRect(cr.left(), cr.top(), self.line_number_area_width(), cr.height())
-        )
+        self.update_line_number_area_width()
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == QtCore.QEvent.FontChange:
+            self.update_line_number_area_width()
 
     # ====== 绘制行号 ======
     def line_number_area_paint_event(self, event):
@@ -212,23 +247,31 @@ class CodeEditor(QPlainTextEdit):
         # 行号文字颜色
         text_color = QColor(self.theme["line_num_text"])
         painter.setPen(text_color)
+        painter.setRenderHint(QPainter.Antialiasing)
+        gutter_width = self.lineNumberArea.width()
+        number_x = self.LINE_NUMBER_PADDING - self.FOLD_CONTROL_WIDTH
+        number_col_width = gutter_width - self.LINE_NUMBER_PADDING
+        line_height = self.fontMetrics().height()
         
         while block.isValid() and top <= event.rect().bottom():
             if block.isVisible():
                 if bottom >= event.rect().top():
-                    line_height = self.fontMetrics().height()
-                    fold_width = self.fold_area_width()
-                    number_col_width = self.fontMetrics().horizontalAdvance('9') * len(str(max(1, self.blockCount())))
-                    if self.folding_enabled and blockNumber in self.fold_regions:
-                        symbol = "▶" if blockNumber in self.folded_starts else "▼"
                     number = str(blockNumber + 1)
-                    number_width = self.fontMetrics().horizontalAdvance(number)
-                    number_x = self.lineNumberArea.width() - fold_width - number_col_width
-                    if self.folding_enabled and blockNumber in self.fold_regions:
-                        symbol_width = self.fontMetrics().horizontalAdvance(symbol)
-                        symbol_x = min(self.lineNumberArea.width() - symbol_width, number_x + number_col_width + self.fold_symbol_gap)
-                        painter.drawText(symbol_x, top, symbol_width, line_height, QtCore.Qt.AlignLeft | QtCore.Qt.AlignVCenter, symbol)
                     painter.drawText(number_x, top, number_col_width, line_height, QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter, number)
+                    if self.folding_enabled and blockNumber in self.fold_regions:
+                        x = gutter_width - self.FOLD_CONTROL_WIDTH / 2
+                        y = top + line_height / 2
+                        arrow = QPainterPath()
+                        if blockNumber in self.folded_starts:
+                            arrow.moveTo(x - 2, y - 3)
+                            arrow.lineTo(x + 2, y)
+                            arrow.lineTo(x - 2, y + 3)
+                        else:
+                            arrow.moveTo(x - 3, y - 2)
+                            arrow.lineTo(x + 3, y - 2)
+                            arrow.lineTo(x, y + 2)
+                        arrow.closeSubpath()
+                        painter.fillPath(arrow, text_color)
                 
                 # 只有可见块才更新 top 和 bottom
                 top = bottom
@@ -250,8 +293,7 @@ class CodeEditor(QPlainTextEdit):
             return
         if event.button() != Qt.LeftButton:
             return
-        fold_width = self.fold_area_width()
-        fold_start_x = self.lineNumberArea.width() - fold_width
+        fold_start_x = self.lineNumberArea.width() - self.FOLD_CONTROL_WIDTH
         if event.position().x() < fold_start_x or event.position().x() > self.lineNumberArea.width():
             return
         block_number = self.block_number_at_y(event.position().y())
@@ -286,18 +328,15 @@ class CodeEditor(QPlainTextEdit):
         return None
 
     def enable_json_folding(self, enabled=True):
-        self.folding_enabled = enabled
         if not enabled:
-            self.fold_regions = {}
-            self.folded_starts.clear()
-            self.restore_fold_placeholders()
-        self.update_line_number_area_width(0)
+            self.expand_all_folds()
+            self.fold_regions.clear()
+        self.folding_enabled = enabled
         self.rebuild_fold_regions()
+        self.lineNumberArea.update()
 
     def rebuild_fold_regions(self):
         if not self.folding_enabled:
-            return
-        if self._updating_fold_placeholder:
             return
         fold_regions = {}
         stack = []
@@ -324,7 +363,7 @@ class CodeEditor(QPlainTextEdit):
                         expected = '{' if ch == '}' else '['
                         if stack and stack[-1][0] == expected:
                             _, start = stack.pop()
-                            if block_num > start:
+                            if block_num > start + 1:
                                 fold_regions[start] = max(fold_regions.get(start, start), block_num)
             block = block.next()
         self.fold_regions = fold_regions
@@ -364,40 +403,18 @@ class CodeEditor(QPlainTextEdit):
             QtCore.QTimer.singleShot(0, self.ensureCursorVisible)
 
     def apply_fold_visibility(self):
-        if not self.folding_enabled:
+        if not self.folding_enabled or not (self.folded_starts or self.skip_map):
             return
-        self.restore_fold_placeholders()
-        
-        # 1. 确定哪些块需要隐藏
-        hidden_blocks = set()
         blocks_to_hide = set()
         self.skip_map.clear()
 
         for start in sorted(self.folded_starts):
-            if start in hidden_blocks:
-                continue 
-            
-            end = self.fold_regions.get(start)
-            if end is None:
+            if start in blocks_to_hide:
                 continue
-            if end > start + 1:
-                placeholder_block_num = start + 1
-                placeholder_block = self.document().findBlockByNumber(placeholder_block_num)
-                if placeholder_block.isValid():
-                    original_text = placeholder_block.text()
-                    indent = re.match(r"\s*", original_text).group(0)
-                    self.set_block_text(placeholder_block_num, f"{indent}...")
-                    self.fold_placeholder_blocks[start] = (placeholder_block_num, original_text)
-            
-            if end > start + 2:
-                # 记录跳跃表，从隐藏的第一行直接跳到隐藏的最后一行（或第一条可见行 end）
-                self.skip_map[start + 2] = end
-                
-            for i in range(start + 2, end):
-                blocks_to_hide.add(i)
-                hidden_blocks.add(i)
-                
-        # 2. 遍历所有块并设置可见性
+            end = self.fold_regions[start]
+            self.skip_map[start + 1] = end
+            blocks_to_hide.update(range(start + 1, end))
+
         block = self.document().firstBlock()
         dirty = False
         while block.isValid():
@@ -423,32 +440,6 @@ class CodeEditor(QPlainTextEdit):
             
             self.viewport().update()
             self.lineNumberArea.update()
-
-    def set_block_text(self, block_number, text):
-        block = self.document().findBlockByNumber(block_number)
-        if not block.isValid():
-            return
-        self._updating_fold_placeholder = True
-        try:
-            was_readonly = self.isReadOnly()
-            if was_readonly:
-                self.setReadOnly(False)
-            cursor = QTextCursor(block)
-            cursor.setPosition(block.position())
-            cursor.movePosition(QTextCursor.EndOfBlock, QTextCursor.KeepAnchor)
-            cursor.insertText(text)
-            if was_readonly:
-                self.setReadOnly(True)
-        finally:
-            self._updating_fold_placeholder = False
-
-    def restore_fold_placeholders(self):
-        if not self.fold_placeholder_blocks:
-            return
-        items = list(self.fold_placeholder_blocks.items())
-        self.fold_placeholder_blocks.clear()
-        for _, (block_num, original_text) in items:
-            self.set_block_text(block_num, original_text)
 
     def expand_folds_for_position(self, position):
         if not self.folding_enabled:
@@ -490,21 +481,23 @@ class CodeEditor(QPlainTextEdit):
         extraSelections.extend(self.search_extra_selections)
         self.setExtraSelections(extraSelections)
 
-    def set_search_selections(self, selections):
-        """
-        设置搜索高亮选区，并触发重绘
-        """
+    def set_search_selections(self, selections, cursor=None):
         self.search_extra_selections = selections
-        self.highlight_current_line()
+        position_changed = cursor is not None and cursor.position() != self.textCursor().position()
+        if cursor is not None:
+            self.setTextCursor(cursor)
+        # 光标移动时，cursorPositionChanged 已经刷新高亮。
+        if not position_changed:
+            self.highlight_current_line()
 
     # ====== 绘制 placeholder ======
     def paintEvent(self, event):
         super().paintEvent(event)
-        if not self.toPlainText() and self.placeholder:
+        if self.document().isEmpty() and self.placeholder:
             painter = QPainter(self.viewport())
             # placeholder 颜色
             painter.setPen(QColor(self.theme["placeholder"]))
-            painter.drawText(self.viewport().rect().adjusted(4, 4, -4, -4),
+            painter.drawText(self.viewport().rect().adjusted(9, 9, -9, -9),
                              Qt.AlignTop | Qt.AlignLeft,
                              self.placeholder)
 
@@ -537,10 +530,93 @@ class PlaceholderTreeWidget(QTreeWidget):
         super().__init__(*args, **kwargs)
         self.placeholder = placeholder
         self.theme = THEMES["light"]
+        self.setUniformRowHeights(True)
+        self.itemExpanded.connect(self.load_children)
         # 数据变化时刷新绘制 placeholder
         self.model().rowsInserted.connect(self.refresh_placeholder)
         self.model().rowsRemoved.connect(self.refresh_placeholder)
         self.model().modelReset.connect(self.refresh_placeholder)
+
+    def set_json(self, data, lazy=False):
+        self.clear()
+        root = self.make_item(None, data)
+        self.addTopLevelItem(root)
+        if not lazy:
+            self.expand_subtree(root)
+
+    @staticmethod
+    def child_entries(value):
+        if isinstance(value, dict):
+            return iter(value.items())
+        if isinstance(value, list):
+            return ((f"[{index}]", child) for index, child in enumerate(value))
+        return iter(())
+
+    @staticmethod
+    def node_label(key, value):
+        if isinstance(value, (dict, list)):
+            if key is not None:
+                return key
+            return "对象" if isinstance(value, dict) else "数组"
+        display = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+        return f"{key}: {display}" if key is not None else display
+
+    def make_item(self, key, value):
+        item = QTreeWidgetItem([self.node_label(key, value)])
+        item.json_key = key
+        item.json_value = value
+        item.has_unloaded_children = isinstance(value, (dict, list)) and bool(value)
+        if item.has_unloaded_children:
+            item.setChildIndicatorPolicy(QTreeWidgetItem.ShowIndicator)
+        return item
+
+    def load_children(self, item):
+        if item.has_unloaded_children:
+            item.has_unloaded_children = False
+            item.addChildren([self.make_item(key, value) for key, value in self.child_entries(item.json_value)])
+            item.setChildIndicatorPolicy(QTreeWidgetItem.DontShowIndicatorWhenChildless)
+
+    def expand_subtree(self, item):
+        self.load_children(item)
+        if not item.childCount():
+            return
+        item.setExpanded(True)
+        for index in range(item.childCount()):
+            self.expand_subtree(item.child(index))
+
+    def expandAll(self):
+        root = self.topLevelItem(0)
+        if root is not None:
+            self.expand_subtree(root)
+
+    def iter_labels(self):
+        root = self.topLevelItem(0)
+        if root is None:
+            return
+
+        # Iterators keep the traversal in tree order without constructing widget items.
+        stack = [iter([(None, root.json_value)])]
+        path_indices = [-1]
+        while stack:
+            entry = next(stack[-1], None)
+            if entry is None:
+                stack.pop()
+                path_indices.pop()
+                continue
+            key, value = entry
+            path_indices[-1] += 1
+            yield tuple(path_indices[1:]), self.node_label(key, value)
+            if isinstance(value, (dict, list)) and value:
+                stack.append(self.child_entries(value))
+                path_indices.append(-1)
+
+    def reveal_path(self, path):
+        item = self.topLevelItem(0)
+        for index in path:
+            self.load_children(item)
+            item.setExpanded(True)
+            item = item.child(index)
+        return item
 
     def refresh_placeholder(self, *args):
         """刷新 placeholder 显示"""
@@ -550,15 +626,17 @@ class PlaceholderTreeWidget(QTreeWidget):
         self.theme = theme_config
         self.setStyleSheet(f"""
             QTreeWidget {{
-                background-color: {self.theme['tree_bg']};
+                background: {self.theme['tree_bg']};
                 color: {self.theme['text_color']};
-                border: 1px solid {self.theme['border_color']};
-                border-radius: 4px;
+                border: none;
+                padding: 5px 4px;
+                show-decoration-selected: 1;
             }}
-            QHeaderView::section {{
-                background-color: {self.theme['header_bg']};
-                color: {self.theme['header_text']};
-                border: 1px solid {self.theme['header_border']};
+            QTreeWidget::item {{ min-height: 25px; }}
+            QTreeWidget::item:hover {{ background: {self.theme['header_bg']}; }}
+            QTreeWidget::item:selected {{
+                background: {self.theme['selection_bg']};
+                color: {self.theme['text_color']};
             }}
         """)
         self.viewport().update()
@@ -569,161 +647,117 @@ class PlaceholderTreeWidget(QTreeWidget):
             painter = QPainter(self.viewport())
             # placeholder 颜色
             painter.setPen(QColor(self.theme["placeholder"]))
-            painter.drawText(self.viewport().rect().adjusted(4, 4, -4, -4),
+            painter.drawText(self.viewport().rect().adjusted(9, 9, -9, -9),
                              Qt.AlignTop | Qt.AlignLeft,
                              self.placeholder)
 
 # ====== 可折叠面板 ======
-class CollapsiblePanel(QWidget):
-    """
-    包含标题栏和折叠按钮的容器组件
-    """
-    def __init__(
-        self,
-        title="",
-        content_widget=None,
-        expanded_text="❮",
-        collapsed_text="❯",
-        parent=None,
-        show_header=True,
-    ):
+class CollapsiblePanel(QFrame):
+    expanded_changed = QtCore.Signal(bool)
+    COLLAPSED_WIDTH = 1
+
+    def __init__(self, title, compact_title, content_widget, expanded_text="‹", parent=None):
         super().__init__(parent)
+        self.setObjectName("workspacePanel")
         self.content_widget = content_widget
         self.is_expanded = True
-        self.expanded_text = expanded_text
-        self.collapsed_text = collapsed_text
-        self.theme = THEMES["light"]
-        # 某些面板只想保留内容区，不想显示标题栏；
-        # 这里保留一个可配置开关，用于彻底移除标题栏占用的高度。
-        self.show_header = show_header
-        
-        # 主布局
-        self.main_layout = QVBoxLayout()
+        self.compact_title = compact_title
+        self.collapse_arrow = expanded_text
+        self.search_widget = None
+        self.search_was_visible = False
+
+        self.main_layout = QVBoxLayout(self)
         self.main_layout.setContentsMargins(0, 0, 0, 0)
         self.main_layout.setSpacing(0)
-        self.setLayout(self.main_layout)
-        
-        # 标题栏
-        self.header = QWidget()
-        self.header.setFixedHeight(26) # 缩小高度
-        
-        self.header_layout = QHBoxLayout()
-        self.header_layout.setContentsMargins(0, 0, 0, 0) # 0边距，极致压缩
-        self.header_layout.setSpacing(0)
-        self.header.setLayout(self.header_layout)
-        
-        # 标题文本
-        self.title_label = QLabel(title)
-        self.title_label.setContentsMargins(5, 0, 0, 0) # 标题左边距
-        font = self.title_label.font()
-        font.setBold(True)
-        font.setPointSize(12) # 稍微减小字体
-        self.title_label.setFont(font)
-        
-        # 折叠/展开按钮
-        self.toggle_btn = QToolButton()
-        self.toggle_btn.setText(self.expanded_text)
-        self.toggle_btn.setFixedSize(16, 26) # 宽度极窄，高度填满header
-        font = self.toggle_btn.font()
-        font.setPointSize(10) # 缩小箭头符号
-        self.toggle_btn.setFont(font)
-        self.toggle_btn.setCheckable(True)
-        self.toggle_btn.setChecked(True)
-        self.toggle_btn.setCursor(Qt.PointingHandCursor) # 鼠标手型
-        self.toggle_btn.clicked.connect(self.toggle)
-        
-        self.header_layout.addWidget(self.title_label)
-        self.header_layout.addStretch()
-        self.header_layout.addWidget(self.toggle_btn)
 
-        # 不显示标题栏时，直接把整个 header 隐藏并压成 0 高度，
-        # 这样不仅看不到标题，也不会留下任何可见空隙。
-        if not self.show_header:
-            self.header.setFixedHeight(0)
-            self.header.hide()
-        
+        self.header = QWidget()
+        self.header.setObjectName("panelHeader")
+        self.header.setFixedHeight(39)
+        header_layout = QHBoxLayout(self.header)
+        header_layout.setContentsMargins(11, 0, 5, 0)
+        header_layout.setSpacing(2)
+
+        self.leading_controls = QHBoxLayout()
+        self.leading_controls.setSpacing(2)
+        header_layout.addLayout(self.leading_controls)
+        self.title_label = QLabel(title)
+        self.title_label.setObjectName("panelTitle")
+        header_layout.addWidget(self.title_label)
+        header_layout.addStretch()
+
+        self.search_btn = QToolButton()
+        self.search_btn.setFixedSize(27, 27)
+        self.search_btn.setToolTip(f"搜索{title}")
+        self.search_btn.setAccessibleName(self.search_btn.toolTip())
+        self.search_btn.setCursor(Qt.PointingHandCursor)
+        header_layout.addWidget(self.search_btn)
+
+        self.toggle_btn = QToolButton()
+        self.toggle_btn.setObjectName("panelToggle")
+        self.toggle_btn.setCursor(Qt.PointingHandCursor)
+        self.update_toggle_button()
+        self.trailing_controls = QHBoxLayout()
+        self.trailing_controls.setSpacing(2)
+        self.trailing_controls.addWidget(self.toggle_btn)
+        header_layout.addLayout(self.trailing_controls)
+
         self.main_layout.addWidget(self.header)
-        
-        if self.content_widget:
-            self.main_layout.addWidget(self.content_widget)
+        self.main_layout.addWidget(self.content_widget, 1)
+        self.set_expanded(True)
 
     def add_search_widget(self, widget):
-        """
-        添加搜索组件到 Header 和 Content 之间
-        """
-        # index 0 is header, so insert at 1
+        self.search_widget = widget
         self.main_layout.insertWidget(1, widget)
         widget.hide()
 
-    def set_theme(self, theme_config):
-        self.theme = theme_config
-        if not self.show_header:
-            self.header.setStyleSheet("QWidget { border: none; background: transparent; }")
-            return
-        self.header.setStyleSheet(f"""
-            QWidget {{
-                background-color: {self.theme['header_bg']}; 
-                border-bottom: 1px solid {self.theme['header_border']};
-            }}
-        """)
-        self.title_label.setStyleSheet(f"color: {self.theme['header_text']}; border: none;")
-        
-        self.toggle_btn.setStyleSheet(f"""
-            QToolButton {{ 
-                border: none; 
-                background: transparent; 
-                color: {self.theme['btn_text']};
-                font-weight: bold; 
-            }}
-            QToolButton:hover {{ 
-                background-color: {self.theme['btn_hover']}; 
-                border-radius: 3px; 
-            }}
-        """)
+    def set_theme(self, theme):
+        self.search_btn.setIcon(toolbar_icon("search", theme["btn_text"]))
 
-    def toggle(self):
-        self.set_expanded(not self.is_expanded)
+    def update_toggle_button(self, restore=False, destination=None):
+        button = self.toggle_btn
+        if restore:
+            text, label, width = "恢复布局", "恢复默认三栏布局", 64
+        elif destination is not None:
+            text = f"‹ {self.compact_title}" if destination == "left" else f"{self.compact_title} ›"
+            label, width = f"展开{self.title_label.text()}", 52
+        else:
+            text, label, width = self.collapse_arrow, f"折叠{self.title_label.text()}", 23
+
+        button.setFixedSize(width, 27)
+        button.setText(text)
+        button.setToolTip(label)
+        button.setAccessibleName(label)
+        labeled = restore or destination is not None
+        if button.property("labeled") != labeled:
+            button.setProperty("labeled", labeled)
+            button.style().unpolish(button)
+            button.style().polish(button)
+
+    def mousePressEvent(self, event):
+        if not self.is_expanded and event.button() == Qt.LeftButton:
+            self.set_expanded(True)
+            event.accept()
+            return
+        super().mousePressEvent(event)
 
     def set_expanded(self, expanded):
+        if self.search_widget is not None and self.is_expanded != expanded:
+            if not expanded:
+                self.search_was_visible = not self.search_widget.isHidden()
+            self.search_widget.setVisible(expanded and self.search_was_visible)
         self.is_expanded = expanded
-        if self.show_header:
-            self.toggle_btn.setChecked(expanded)
-        
-        if self.is_expanded:
-            if self.content_widget:
-                self.content_widget.show()
-            if self.show_header:
-                self.title_label.show()
-            self.setMaximumWidth(16777215) # QWIDGETSIZE_MAX
-            if self.show_header:
-                self.toggle_btn.setText(self.expanded_text)
-            self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
-            # 恢复 header 样式
-            if self.show_header:
-                self.header.setStyleSheet(f"""
-                    QWidget {{
-                        background-color: {self.theme['header_bg']}; 
-                        border-bottom: 1px solid {self.theme['header_border']};
-                    }}
-                """)
-        else:
-            if self.content_widget:
-                self.content_widget.hide()
-            if self.show_header:
-                self.title_label.hide()
-            self.setMaximumWidth(16) # 收缩后的宽度，极致压缩
-            if self.show_header:
-                self.toggle_btn.setText(self.collapsed_text)
-            self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
-            # 收缩时隐藏 header 背景，使其看起来更像一条线
-            if self.show_header:
-                self.header.setStyleSheet(f"""
-                    QWidget {{
-                        background-color: {self.theme['header_bg']}; 
-                        border-bottom: none;
-                    }}
-                """)
-
+        self.header.setVisible(expanded)
+        self.content_widget.setVisible(expanded)
+        self.setToolTip("" if expanded else f"展开{self.title_label.text()}")
+        self.setCursor(Qt.ArrowCursor if expanded else Qt.PointingHandCursor)
+        self.setMaximumWidth(16777215 if expanded else self.COLLAPSED_WIDTH)
+        self.setMinimumWidth(0 if expanded else self.COLLAPSED_WIDTH)
+        self.setSizePolicy(QSizePolicy.Preferred if expanded else QSizePolicy.Fixed, QSizePolicy.Preferred)
+        self.setProperty("collapsed", not expanded)
+        self.style().unpolish(self)
+        self.style().polish(self)
+        self.update()
+        self.expanded_changed.emit(expanded)
 
 # ====== 可双击修改的标题标签 ======
 class EditableTitleLabel(QLabel):
@@ -731,8 +765,6 @@ class EditableTitleLabel(QLabel):
         super().__init__(title, parent)
         self.setToolTip("双击修改标题")
         self.setCursor(Qt.PointingHandCursor)
-        # 稍微增加一点样式，使其看起来像标题
-        self.setStyleSheet("padding: 2px;")
 
     def mouseDoubleClickEvent(self, event):
         new_title, ok = QInputDialog.getText(self, "修改标题", "请输入新标题:", text=self.text())
@@ -747,136 +779,75 @@ class EditableTitleLabel(QLabel):
 class SearchHighlightDelegate(QStyledItemDelegate):
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.keyword = ""
+        self.pattern = None
         self.theme = THEMES["light"]
         self.current_item = None
         self.current_match_index = -1
-        # 缓存 QTextDocument 以避免在 paint 中频繁创建导致崩溃或性能问题
         self._doc = QTextDocument()
         self._doc.setDocumentMargin(0)
 
-    def set_search_config(self, keyword, theme):
-        self.keyword = keyword
+    def set_theme(self, theme):
         self.theme = theme
-        self.current_item = None
-        self.current_match_index = -1
-        
+
+    def set_search_config(self, keyword, theme):
+        self.pattern = re.compile(re.escape(keyword), re.IGNORECASE) if keyword else None
+        self.set_theme(theme)
+        self.set_current_match(None, -1)
+
     def set_current_match(self, item, match_index):
         self.current_item = item
         self.current_match_index = match_index
-        
+
     def paint(self, painter, option, index):
         options = QStyleOptionViewItem(option)
         self.initStyleOption(options, index)
-        
-        style = options.widget.style() if options.widget else QApplication.style()
-        
-        # 1. 绘制背景和选区状态（不带文字）
-        original_text = options.text
-        options.text = ""
-        style.drawControl(QStyle.CE_ItemViewItem, options, painter, options.widget)
-        options.text = original_text # 恢复 text
-
-        # 2. 绘制高亮文字
-        text = original_text
-        if not text:
+        text = options.text
+        item = self.parent().itemFromIndex(index)
+        key = item.json_key
+        is_scalar = not isinstance(item.json_value, (dict, list))
+        value_start = len(key) + 2 if is_scalar and key is not None else len(text)
+        matches = list(self.pattern.finditer(text)) if self.pattern else []
+        if not matches and value_start == len(text):
+            super().paint(painter, option, index)
             return
 
-        import html
-        
-        # 获取当前 item (用于判断是否是当前匹配项)
-        current_item_widget = None
-        tree_widget = None
-        
-        if options.widget and isinstance(options.widget, QTreeWidget):
-             tree_widget = options.widget
-        elif self.parent() and isinstance(self.parent(), QTreeWidget):
-             tree_widget = self.parent()
-             
-        if tree_widget:
-             current_item_widget = tree_widget.itemFromIndex(index)
+        style = options.widget.style() if options.widget else QApplication.style()
+        text_rect = style.subElementRect(QStyle.SE_ItemViewItemText, options, options.widget)
+        options.text = ""
+        style.drawControl(QStyle.CE_ItemViewItem, options, painter, options.widget)
 
-        # 准备 HTML
-        html_content = html.escape(text)
+        def text_segment(start, end):
+            key_text = html.escape(text[start:min(end, value_start)])
+            value = html.escape(text[max(start, value_start):end])
+            return f'{key_text}<span style="color:{self.theme["tree_value"]}">{value}</span>' if value else key_text
 
-        if self.keyword:
-            import re
-            try:
-                # 在原始文本中查找匹配
-                pattern = re.compile(re.escape(self.keyword), re.IGNORECASE)
-                matches = list(pattern.finditer(text))
-                
-                if matches:
-                    html_parts = []
-                    last_end = 0
-                    
-                    # 获取颜色
-                    # 普通匹配颜色
-                    color_match = self.theme.get('highlight', {}).get('search_match', '#00FF00')
-                    # 当前聚焦匹配颜色
-                    color_current = self.theme.get('highlight', {}).get('search_current', '#FF0000')
-                    
-                    if isinstance(color_match, QColor): color_match = color_match.name()
-                    if isinstance(color_current, QColor): color_current = color_current.name()
-
-                    is_target_item = (current_item_widget == self.current_item)
-
-                    for i, match in enumerate(matches):
-                        # 添加匹配前的文本 (转义)
-                        html_parts.append(html.escape(text[last_end:match.start()]))
-                        
-                        # 确定当前匹配的背景色
-                        bg_color = color_match
-                        if is_target_item and i == self.current_match_index:
-                            bg_color = color_current
-                        
-                        # 添加匹配文本 (转义 + span)
-                        matched_str = html.escape(match.group(0))
-                        html_parts.append(f'<span style="background-color: {bg_color}; color: black;">{matched_str}</span>')
-                        
-                        last_end = match.end()
-                    
-                    # 添加剩余文本
-                    html_parts.append(html.escape(text[last_end:]))
-                    html_content = "".join(html_parts)
-                    
-            except Exception:
-                pass
+        parts = []
+        end = 0
+        colors = self.theme["highlight"]
+        for index, match in enumerate(matches):
+            parts.append(text_segment(end, match.start()))
+            current = item == self.current_item and index == self.current_match_index
+            background = colors["search_current"] if current else colors["search_match"]
+            foreground = colors["highlight_fg"] if current else self.theme["text_color"]
+            matched_text = html.escape(match.group())
+            parts.append(f'<span style="background:{background};color:{foreground}">{matched_text}</span>')
+            end = match.end()
+        parts.append(text_segment(end, len(text)))
 
         painter.save()
-        
-        # 获取文本绘制区域
-        text_rect = style.subElementRect(QStyle.SE_ItemViewItemText, options, options.widget)
-        
-        # 使用缓存的 QTextDocument 渲染 HTML
         self._doc.setDefaultFont(options.font)
-        
-        # 确定文字颜色
-        if options.state & QStyle.State_Selected:
-            text_color = options.palette.color(QPalette.HighlightedText).name()
-        else:
-            text_color = options.palette.color(QPalette.Text).name()
-            
         self._doc.setTextWidth(text_rect.width())
-        # white-space: pre 保持空格
-        self._doc.setHtml(f'<div style="color: {text_color}; white-space: pre;">{html_content}</div>')
-        
-        # 垂直居中调整
-        doc_height = self._doc.size().height()
-        offset_y = (text_rect.height() - doc_height) / 2
-        
+        content = "".join(parts)
+        self._doc.setHtml(f'<div style="color:{self.theme["text_color"]};white-space:pre">{content}</div>')
         painter.translate(text_rect.topLeft())
-        painter.translate(0, offset_y)
         painter.setClipRect(0, 0, text_rect.width(), text_rect.height())
-        
+        painter.translate(0, (text_rect.height() - self._doc.size().height()) / 2)
         self._doc.drawContents(painter)
         painter.restore()
 
 
 # ====== JSON 格式化窗口 ======
 class JsonFormatterWindow(QWidget):
-    windows = []         # 所有窗口实例
-    tool_windows = []    # 其他工具窗口实例
     window_count = 0     # 窗口计数，用于区分标题
     SETTINGS_ORG = "lawliet"
     SETTINGS_APP = "json-format-pyside6"
@@ -889,23 +860,31 @@ class JsonFormatterWindow(QWidget):
         JsonFormatterWindow.window_count += 1
         self.window_number = JsonFormatterWindow.window_count
         self.setWindowTitle(f"JSON 工具" + (f" {self.window_number}" if self.window_number > 1 else ""))
-        self.resize(1200, 700)
+        self.resize(self.DEFAULT_WINDOW_WIDTH, self.DEFAULT_WINDOW_HEIGHT)
 
         # 使用固定宽度字体
         font = QFontDatabase.systemFont(QFontDatabase.FixedFont)
+        if sys.platform == "darwin":
+            font.setFamily("Menlo")
         font.setPointSize(15)
 
         # ====== 输入编辑器 ======
         self.input_edit = CodeEditor(placeholder="原始 JSON")
         self.input_edit.setFont(font)
-        self.input_edit.textChanged.connect(self.auto_format_input)  # 自动格式化 JSON
+        self.format_timer = QtCore.QTimer(self)
+        self.format_timer.setSingleShot(True)
+        self.format_timer.setInterval(150)
+        self.format_timer.timeout.connect(self.auto_format_input)
+        self.input_edit.textChanged.connect(self.format_timer.start)
 
         # ====== 输出树 ======
         self.output_tree = PlaceholderTreeWidget(
-            placeholder="JSON 树（折叠/展开）, 选中节点后可展示对应 JSON 结果"
+            placeholder="选中节点查看对应 JSON"
         )
         self.output_tree.setHeaderHidden(True)
-        self.output_tree.setFont(font)
+        tree_font = self.output_tree.font()
+        tree_font.setPointSize(font.pointSize())
+        self.output_tree.setFont(tree_font)
         self.output_tree.itemClicked.connect(self.on_tree_item_clicked)
         # 设置搜索高亮代理
         self.search_delegate = SearchHighlightDelegate(self.output_tree)
@@ -915,170 +894,120 @@ class JsonFormatterWindow(QWidget):
         self.output_tree.customContextMenuRequested.connect(self.open_tree_context_menu)
 
         # ====== 输出文本 ======
-        self.output_edit = CodeEditor(placeholder="JSON 结果（格式化输出）")
-        self.output_edit.setPlaceholderText("JSON 结果（格式化输出）")  # CodeEditor 也支持这个
+        self.output_edit = CodeEditor(placeholder="格式化结果将显示在这里")
         # 添加 JSON 高亮器
         self.highlighter = JsonHighlighter(self.output_edit.document())
         self.output_edit.setFont(font)
         self.output_edit.setReadOnly(True)
         self.output_edit.enable_json_folding(True)
+        self.input_edit.blockCountChanged.connect(self.sync_line_number_digits)
+        self.output_edit.blockCountChanged.connect(self.sync_line_number_digits)
+        self.sync_line_number_digits()
         palette = self.output_edit.palette()
         palette.setColor(QPalette.PlaceholderText, QColor("#999999"))  # placeholder 灰色
         self.output_edit.setPalette(palette)
 
-        # ====== 三栏布局 ======
-        # 左侧：原始 JSON
-        self.left_panel = CollapsiblePanel(
-            "原始 JSON",
-            self.input_edit,
-            expanded_text="❮",
-            collapsed_text="❯",
-        )
-        
-        # 中间：JSON 树
-        self.middle_panel = CollapsiblePanel("JSON 树", self.output_tree, expanded_text="❯", collapsed_text="❮")
-        # 默认收缩中间树
-        self.middle_panel.set_expanded(False)
-
-        # 右侧：JSON 结果
-        self.right_panel = CollapsiblePanel(
-            "JSON 结果",
-            self.output_edit,
-            expanded_text="❯",
-            collapsed_text="❮",
-        )
+        self.left_panel = CollapsiblePanel("原始 JSON", "原始", self.input_edit)
+        self.middle_panel = CollapsiblePanel("JSON 树", "树", self.output_tree, expanded_text="›")
+        self.right_panel = CollapsiblePanel("格式化结果", "结果", self.output_edit, expanded_text="›")
+        self.workspace_panels = (self.left_panel, self.middle_panel, self.right_panel)
 
         self.splitter = QSplitter()
-        self.splitter.addWidget(self.left_panel)
-        self.splitter.addWidget(self.middle_panel)
-        self.splitter.addWidget(self.right_panel)
+        self.splitter.setHandleWidth(1)
+        self.splitter.setChildrenCollapsible(False)
+        for panel in self.workspace_panels:
+            self.splitter.addWidget(panel)
+        self.splitter.setSizes(self.default_splitter_sizes())
 
-        # 设置初始宽度比例：原始 JSON 1/2，JSON 树 16 (收缩状态)，JSON 结果 1/2
-        total_width = self.width() if self.width() > 0 else 1200 # 默认宽度
-        self.splitter.setSizes([
-            int(total_width * 1 / 2),  # 原始 JSON
-            16,                        # JSON 树 (因为收缩了，给个极小宽度)
-            int(total_width * 1 / 2)   # JSON 结果
-        ])
-
-        # 按钮
         self.btn_format = QPushButton("格式化")
-        self.btn_loose_parse = QPushButton("宽松解析")
+        self.btn_format.setObjectName("primaryAction")
         self.btn_compress = QPushButton("压缩")
-        self.btn_save = QPushButton("保存")
+        self.btn_loose_parse = QPushButton("宽松解析")
         self.btn_copy = QPushButton("复制结果")
-        self.is_pinned = False
+        self.copy_feedback = QtCore.QTimer(self)
+        self.copy_feedback.setSingleShot(True)
+        self.copy_feedback.timeout.connect(lambda: self.btn_copy.setText("复制结果"))
+        self.btn_save = QPushButton("保存")
 
-        # “图钉”按钮用于切换窗口是否保持在最前面显示。
-        # 这里使用 QToolButton，可以在有限的标题区域里保持更紧凑的占位。
+        self.btn_format.clicked.connect(self.format_json)
+        self.btn_compress.clicked.connect(self.compress_json)
+        self.btn_loose_parse.clicked.connect(self.loose_parse_json)
+        self.btn_copy.clicked.connect(self.copy_result)
+        self.btn_save.clicked.connect(self.save_file)
+
+        self.is_pinned = False
         self.btn_pin_window = QToolButton()
-        self.btn_pin_window.setText("📌")
+        self.btn_pin_window.setFixedSize(34, 32)
         self.btn_pin_window.setCheckable(True)
         self.btn_pin_window.setCursor(Qt.PointingHandCursor)
-        self.btn_pin_window.setToolTip("钉在屏幕上")
-
-        # 布局切换按钮
-        self.btn_layout_source_result = QPushButton("原始+结果")
-        self.btn_layout_source_tree = QPushButton("原始+树")
-        self.btn_layout_all = QPushButton("三栏布局")
-        self.btn_layout_tree_result = QPushButton("树+结果")
-        self.btn_restore_default_layout = QPushButton("默认")
-
-        # 绑定按钮事件
-        self.btn_format.clicked.connect(self.format_json)
-        self.btn_loose_parse.clicked.connect(self.loose_parse_json)
-        self.btn_compress.clicked.connect(self.compress_json)
-        self.btn_save.clicked.connect(self.save_file)
-        self.btn_copy.clicked.connect(self.copy_result)
+        self.btn_pin_window.setToolTip("置顶窗口")
+        self.btn_pin_window.setAccessibleName("置顶窗口")
         self.btn_pin_window.toggled.connect(self.toggle_window_pin)
-        self.btn_restore_default_layout.clicked.connect(self.restore_default_layout)
 
-        # 绑定布局切换事件
-        self.btn_layout_source_result.clicked.connect(lambda: self.switch_layout(True, False, True))
-        self.btn_layout_source_tree.clicked.connect(lambda: self.switch_layout(True, True, False))
-        self.btn_layout_all.clicked.connect(lambda: self.switch_layout(True, True, True))
-        self.btn_layout_tree_result.clicked.connect(lambda: self.switch_layout(False, True, True))
+        self.btn_layout = QToolButton()
+        self.btn_layout.setObjectName("layoutMenuButton")
+        self.btn_layout.setText("布局")
+        self.btn_layout.setToolTip("切换三栏布局")
+        self.btn_layout.setCursor(Qt.PointingHandCursor)
+        self.btn_layout.setPopupMode(QToolButton.InstantPopup)
+        layout_menu = QMenu(self.btn_layout)
+        for label, panels in (
+            ("原始 JSON + 结果", (True, False, True)),
+            ("原始 JSON + JSON 树", (True, True, False)),
+            ("JSON 树 + 结果", (False, True, True)),
+        ):
+            layout_menu.addAction(label, lambda states=panels: self.switch_layout(*states))
+        layout_menu.addSeparator()
+        layout_menu.addAction("恢复默认三栏布局", self.restore_default_layout)
+        self.btn_layout.setMenu(layout_menu)
 
-        # 标题 Label (可双击修改)
-        title_text = f"JSON 工具" + (f" {self.window_number}" if self.window_number > 1 else "")
-        self.title_label = EditableTitleLabel(title_text, self)
-        font = self.title_label.font()
-        font.setPointSize(16)
-        font.setBold(True)
-        self.title_label.setFont(font)
-        # 标题左侧只保留很小的起始留白，避免第一行被额外撑高。
-        self.title_label.setContentsMargins(0, 0, 0, 0)
+        self.title_label = EditableTitleLabel(self.windowTitle(), self)
+        self.title_label.setObjectName("workspaceTitle")
+        self.title_label.setMaximumWidth(180)
+        self.title_label.setMinimumWidth(96)
+        self.title_label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
 
-        # 顶部操作区改成两行布局：
-        # 第一行放标题、图钉按钮和主要功能按钮；
-        # 第二行单独放布局切换按钮。
-        # 这样可以显著降低一整行横向排列带来的最小宽度压力，
-        # 让主窗口在水平方向上更容易缩放。
-        top_controls_layout = QVBoxLayout()
-        top_controls_layout.setContentsMargins(0, 0, 0, 0)
-        # 顶部两行之间进一步压缩，让第一行和第二行尽量贴近。
-        top_controls_layout.setSpacing(0)
+        toolbar = QFrame()
+        toolbar.setObjectName("workspaceToolbar")
+        toolbar_layout = QHBoxLayout(toolbar)
+        toolbar_layout.setContentsMargins(17, 0, 15, 0)
+        toolbar_layout.setSpacing(7)
+        toolbar.setFixedHeight(40)
+        toolbar_layout.addWidget(self.title_label)
+        toolbar_layout.addSpacing(12)
+        for button in (self.btn_format, self.btn_compress, self.btn_loose_parse):
+            button.setCursor(Qt.PointingHandCursor)
+            toolbar_layout.addWidget(button)
+        toolbar_layout.addStretch()
+        for button in (self.btn_copy, self.btn_save, self.btn_layout, self.btn_pin_window):
+            button.setCursor(Qt.PointingHandCursor)
+            toolbar_layout.addWidget(button)
 
-        first_row_layout = QHBoxLayout()
-        first_row_layout.setContentsMargins(0, 0, 0, 0)
-        # 第一行按钮横向间距略收紧，减少整行视觉体积。
-        first_row_layout.setSpacing(2)
-        first_row_layout.addWidget(self.title_label)
-        first_row_layout.addStretch(1)
+        self.parse_warning = QLabel()
+        self.parse_warning.setObjectName("parseWarning")
+        self.parse_warning.setWordWrap(True)
+        self.parse_warning.hide()
+        self.right_panel.main_layout.insertWidget(1, self.parse_warning)
+        self.right_panel.expanded_changed.connect(
+            lambda expanded: self.parse_warning.setVisible(expanded and bool(self.parse_warning.text()))
+        )
 
-        # 功能按钮组
-        for btn in [self.btn_format, self.btn_loose_parse, self.btn_compress, self.btn_copy, self.btn_save]:
-            font = btn.font()
-            font.setBold(True)  # 按钮加粗
-            btn.setFont(font)
-            # 不再使用固定宽度。
-            # 交给 QPushButton 自己根据文字内容和内边距计算 sizeHint，
-            # 这样按钮宽度会更贴近实际文本长度，不会出现明显过宽的空白。
-            btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-            first_row_layout.addWidget(btn)
-
-        second_row_layout = QHBoxLayout()
-        second_row_layout.setContentsMargins(0, 0, 0, 0)
-        # 第二行也同步缩小间距，让第二行和第三块内容区更紧凑。
-        second_row_layout.setSpacing(2)
-        # 将图钉按钮放到第二行左侧，这样视觉上就在主标题正下方。
-        # 第二行剩余空间再用弹性留白隔开，右侧继续放布局切换按钮。
-        # 这里增加一个很小的左侧留白，让图钉按钮不要紧贴最左边，
-        # 并尽量与标题文字的起始位置保持对齐。
-        second_row_layout.addSpacing(0)
-        second_row_layout.addWidget(self.btn_pin_window)
-        second_row_layout.addStretch(1)
-
-        # 布局切换按钮组
-        for btn in [
-            self.btn_layout_source_result,
-            self.btn_layout_source_tree,
-            self.btn_layout_all,
-            self.btn_layout_tree_result,
-            self.btn_restore_default_layout,
-        ]:
-            font = btn.font()
-            # font.setBold(True) # 布局按钮是否加粗可选，这里保持一致性也可以加粗
-            btn.setFont(font)
-            second_row_layout.addWidget(btn)
-
-        top_controls_layout.addLayout(first_row_layout)
-        top_controls_layout.addLayout(second_row_layout)
-        
-        # ====== 主布局 ======
-        main_layout = QVBoxLayout()
-        # 主布局边距与垂直间距继续压缩，使第一行、第二行、第三行更紧紧相邻。
+        main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
-        main_layout.addLayout(top_controls_layout)
-        main_layout.addWidget(self.splitter)
-        self.setLayout(main_layout)
+        main_layout.addWidget(toolbar)
+        main_layout.addWidget(self.splitter, 1)
 
         # 使用延迟保存，避免在拖动 splitter 或连续调整窗口大小时频繁写入配置。
         self.layout_save_timer = QtCore.QTimer(self)
         self.layout_save_timer.setSingleShot(True)
         self.layout_save_timer.timeout.connect(self.save_layout_state)
         self.splitter.splitterMoved.connect(self.schedule_layout_save)
+        for panel in self.workspace_panels:
+            panel.expanded_changed.connect(self.update_splitter_handles)
+            panel.toggle_btn.clicked.connect(lambda checked=False, current=panel: self.toggle_workspace_panel(current))
+        for index in range(1, self.splitter.count()):
+            self.splitter.handle(index).installEventFilter(self)
 
         # 在事件循环启动后恢复上次布局。
         # 这样可以确保 splitter 已经有了有效宽度，恢复比例时更稳定。
@@ -1088,15 +1017,33 @@ class JsonFormatterWindow(QWidget):
         menu_bar = QMenuBar()
         file_menu = QMenu("文件", self)
         menu_bar.addMenu(file_menu)
-        new_action = file_menu.addAction("新建 JSON 窗口")
-        new_action.triggered.connect(JsonFormatterWindow.new_window_static)
-        string_tool_action = file_menu.addAction("打开字符串格式化窗口")
-        string_tool_action.triggered.connect(self.open_string_formatter_window)
-        timestamp_tool_action = file_menu.addAction("打开时间戳转换窗口")
-        timestamp_tool_action.triggered.connect(self.open_timestamp_converter_window)
-        open_action = file_menu.addAction("打开 JSON 文件")
-        open_action.triggered.connect(self.open_file)
-        
+        file_menu.addAction(self.new_json_window_action())
+        file_menu.addAction("打开字符串格式化窗口", QKeySequence("Ctrl+Alt+S"), self.open_string_formatter_window)
+        file_menu.addAction("打开时间戳转换窗口", QKeySequence("Ctrl+Alt+T"), self.open_timestamp_converter_window)
+        file_menu.addSeparator()
+        file_menu.addAction("打开 JSON 文件", QKeySequence(QKeySequence.StandardKey.Open), self.open_file)
+        file_menu.addAction("保存结果", QKeySequence(QKeySequence.StandardKey.Save), self.save_file)
+        file_menu.addAction("收起当前窗口", QKeySequence("Ctrl+W"), self.close)
+        file_menu.addSeparator()
+        # 退出应用时真正销毁所有窗口。
+        quit_action = file_menu.addAction("退出")
+        quit_action.setMenuRole(QAction.QuitRole)
+        quit_action.setShortcut(QKeySequence("Ctrl+Q"))  # macOS 上自动映射为 Cmd+Q
+        quit_action.triggered.connect(JsonFormatterWindow.quit_app)
+
+        json_menu = QMenu("JSON", self)
+        menu_bar.addMenu(json_menu)
+        json_menu.addAction("格式化", QKeySequence("Ctrl+Shift+F"), self.format_json)
+        json_menu.addAction("压缩", QKeySequence("Ctrl+Shift+M"), self.compress_json)
+        json_menu.addAction("宽松解析", QKeySequence("Ctrl+Shift+R"), self.loose_parse_json)
+        json_menu.addAction("复制结果", QKeySequence("Ctrl+Shift+C"), self.copy_result)
+        json_menu.addSeparator()
+        json_menu.addAction("查找", QKeySequence(QKeySequence.StandardKey.Find), lambda: self.open_search())
+        next_match_action = json_menu.addAction("查找下一处", self.next_match_current)
+        next_match_action.setShortcuts([QKeySequence("Ctrl+G"), QKeySequence("F3")])
+        prev_match_action = json_menu.addAction("查找上一处", self.prev_match_current)
+        prev_match_action.setShortcuts([QKeySequence("Ctrl+Shift+G"), QKeySequence("Shift+F3")])
+
         # 视图菜单 - 主题切换
         view_menu = QMenu("视图", self)
         menu_bar.addMenu(view_menu)
@@ -1127,6 +1074,12 @@ class JsonFormatterWindow(QWidget):
         about_action = help_menu.addAction("关于 JSON 工具")
         about_action.triggered.connect(self.show_about_dialog)
 
+        # ====== 窗口菜单（多窗口设计第三节：菜单名称固定为「窗口」）======
+        # 菜单内容 = 窗口管理器中注册的全部窗口；
+        # ✓ 表示窗口当前可见，允许多个窗口同时 ✓（多选语义，非单选）。
+        self.window_menu = QMenu("窗口", self)
+        menu_bar.addMenu(self.window_menu)
+
         # ===== 搜索框（两栏）=====
         self.search_panels = {
             "input": SearchPanel(self.left_panel, self.input_edit),
@@ -1137,20 +1090,26 @@ class JsonFormatterWindow(QWidget):
         # 将搜索面板添加到对应的折叠面板中
         self.left_panel.add_search_widget(self.search_panels["input"])
         self.right_panel.add_search_widget(self.search_panels["output"])
+        for key, panel in (("input", self.left_panel), ("tree", self.middle_panel), ("output", self.right_panel)):
+            panel.search_btn.clicked.connect(lambda checked=False, target=key: self.open_search(target))
         self.middle_panel.add_search_widget(self.search_panels["tree"])
 
-        QShortcut(QKeySequence("Ctrl+F"), self, activated=self.open_search)
-        QShortcut(QKeySequence("Cmd+F"), self, activated=self.open_search)
-        QShortcut(QKeySequence("F3"), self, activated=self.next_match_current)
-        QShortcut(QKeySequence("Shift+F3"), self, activated=self.prev_match_current)
-
-        # 保存窗口引用
-        JsonFormatterWindow.windows.append(self)
+        # 将当前窗口登记到全局窗口管理器：
+        # 1. 分配稳定 UUID（不再使用 id(window)）
+        # 2. 登记本窗口的「窗口」菜单，由管理器统一重建 ✓ 列表
+        manager = WindowManager.instance()
+        manager.register_window_menu(self.window_menu)
+        manager.register(self, title=self.windowTitle(), kind="json")
         
         # 初始化主题
         self.current_theme_mode = "auto"
         self._is_applying_theme = False
         self.apply_theme()
+
+    def sync_line_number_digits(self):
+        digits = len(str(max(self.input_edit.blockCount(), self.output_edit.blockCount())))
+        self.input_edit.set_shared_line_number_digits(digits)
+        self.output_edit.set_shared_line_number_digits(digits)
 
     def switch_theme_mode(self, mode):
         self.current_theme_mode = mode
@@ -1180,7 +1139,7 @@ class JsonFormatterWindow(QWidget):
         监听系统主题变化
         """
         if event.type() == QtCore.QEvent.PaletteChange:
-            if self.current_theme_mode == "auto" and not self._is_applying_theme:
+            if getattr(self, "current_theme_mode", None) == "auto" and not self._is_applying_theme:
                 # 只有当不在应用主题时才尝试重新应用
                 self.apply_theme()
         super().changeEvent(event)
@@ -1194,7 +1153,9 @@ class JsonFormatterWindow(QWidget):
         才能让新的窗口层级立即生效。
         """
         self.is_pinned = pinned
-        self.btn_pin_window.setToolTip("取消钉在屏幕上" if pinned else "钉在屏幕上")
+        self.btn_pin_window.setToolTip("取消置顶" if pinned else "置顶窗口")
+        self.btn_pin_window.setAccessibleName(self.btn_pin_window.toolTip())
+        self.update_pin_icon()
 
         # 记录当前几何信息，避免在重新应用窗口 flag 后出现位置偏移。
         current_geometry = self.geometry()
@@ -1209,156 +1170,130 @@ class JsonFormatterWindow(QWidget):
         self.activateWindow()
 
     def apply_theme(self):
-        """
-        应用当前主题
-        """
         if self._is_applying_theme:
             return
-            
+
         self._is_applying_theme = True
         try:
-            mode = self.current_theme_mode
-            if mode == "auto":
-                mode = self.detect_system_theme()
-                
-            theme = THEMES.get(mode, THEMES["light"])
-            self.current_theme_data = theme # 保存当前主题数据供其他地方使用
-            
-            # 1. 设置窗口背景
-            # 全局滚动条样式
-            scrollbar_style = f"""
-                QScrollBar:vertical {{
-                    border: none;
-                    background: {theme.get('scrollbar_bg', '#f0f0f0')};
-                    width: 12px;
-                    margin: 0px 0px 0px 0px;
+            mode = self.detect_system_theme() if self.current_theme_mode == "auto" else self.current_theme_mode
+            theme = THEMES[mode]
+            self.current_theme_data = theme
+            self.setObjectName("jsonWorkspace")
+            self.setStyleSheet(f"""
+                QWidget#jsonWorkspace {{ background: {theme['window_bg']}; }}
+                QLabel {{ color: {theme['text_color']}; }}
+                QFrame#workspaceToolbar {{
+                    background: {theme['header_bg']};
+                    border-bottom: 1px solid {theme['border_color']};
                 }}
-                QScrollBar::handle:vertical {{
-                    background: {theme.get('scrollbar_handle', '#c1c1c1')};
-                    min-height: 20px;
+                QLabel#workspaceTitle {{ font-size: 18px; font-weight: 700; }}
+                QFrame#workspacePanel {{
+                    background: {theme['input_bg']};
+                    border: none;
+                }}
+                QWidget#panelHeader {{
+                    background: {theme['header_bg']};
+                    border-bottom: 1px solid {theme['header_border']};
+                }}
+                QLabel#panelTitle {{ color: {theme['header_text']}; font-weight: 600; }}
+                QFrame#workspaceToolbar QPushButton, QFrame#workspaceToolbar QToolButton {{
+                    background: {theme['btn_bg']};
+                    color: {theme['btn_text']};
+                    border: 1px solid {theme['border_color']};
                     border-radius: 6px;
-                    margin: 2px;
+                    min-height: 30px;
+                    padding: 0px 11px;
                 }}
-                QScrollBar::handle:vertical:hover {{
-                    background: {theme.get('scrollbar_handle_hover', '#a8a8a8')};
+                QFrame#workspaceToolbar QToolButton {{ padding: 0px; }}
+                QFrame#workspaceToolbar QToolButton::menu-indicator {{
+                    subcontrol-origin: padding;
+                    subcontrol-position: center right;
+                    right: 7px;
                 }}
-                QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
-                    border: none;
-                    background: none;
-                    height: 0px;
+                QFrame#workspaceToolbar QToolButton#layoutMenuButton {{ padding: 0px 21px 0px 10px; }}
+                QFrame#workspaceToolbar QPushButton:hover, QFrame#workspaceToolbar QToolButton:hover {{
+                    background: {theme['btn_hover']};
                 }}
-                QScrollBar:horizontal {{
-                    border: none;
-                    background: {theme.get('scrollbar_bg', '#f0f0f0')};
-                    height: 12px;
-                    margin: 0px 0px 0px 0px;
+                QFrame#workspaceToolbar QToolButton:checked {{
+                    background: {theme['accent_soft']};
+                    border-color: {theme['accent']};
                 }}
-                QScrollBar::handle:horizontal {{
-                    background: {theme.get('scrollbar_handle', '#c1c1c1')};
-                    min-width: 20px;
-                    border-radius: 6px;
-                    margin: 2px;
+                QFrame#workspaceToolbar QPushButton:focus, QFrame#workspaceToolbar QToolButton:focus {{
+                    border-color: {theme['accent']};
                 }}
-                QScrollBar::handle:horizontal:hover {{
-                    background: {theme.get('scrollbar_handle_hover', '#a8a8a8')};
+                QFrame#workspaceToolbar QPushButton#primaryAction {{
+                    background: {theme['accent']};
+                    color: {theme['on_accent']};
+                    border: 1px solid {theme['accent']};
+                    font-weight: 600;
+                    padding: 0px 15px;
                 }}
-                QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
-                    border: none;
-                    background: none;
-                    width: 0px;
+                QFrame#workspaceToolbar QPushButton#primaryAction:hover,
+                QFrame#workspaceToolbar QPushButton#primaryAction:pressed {{
+                    background: {theme['accent_hover']};
+                    border-color: {theme['accent_hover']};
                 }}
-            """
-            
-            self.setStyleSheet(f"background-color: {theme['window_bg']}; color: {theme['text_color']}; {scrollbar_style}")
-            
-            # 2. 设置输入框主题
-            self.input_edit.set_theme(theme)
-            
-            # 3. 设置树控件主题
-            self.output_tree.set_theme(theme)
-            
-            # 4. 设置输出框主题
-            # CodeEditor 自动处理主题，但我们需要手动调用它的 set_theme
-            self.output_edit.set_theme(theme)
-            
-            # 更新 placeholder 颜色
-            palette = self.output_edit.palette()
-            palette.setColor(QPalette.PlaceholderText, QColor(theme['placeholder']))
-            self.output_edit.setPalette(palette)
-            
-            # 更新高亮器颜色
-            self.highlighter.set_theme(theme)
-            
-            # 5. 设置可折叠面板主题
-            self.left_panel.set_theme(theme)
-            self.middle_panel.set_theme(theme)
-            self.right_panel.set_theme(theme)
-            
-            # 6. 设置 Splitter Handle 颜色
-            handle_color = theme['splitter_handle']
-            handle_hover = theme.get('btn_hover', '#cccccc')
-            self.splitter.setStyleSheet(f"""
-                QSplitter::handle {{
-                    background-color: {handle_color};
+                QFrame#workspaceToolbar QPushButton#primaryAction:focus {{
+                    border-color: {theme['on_accent']};
+                }}
+                QWidget#panelHeader QToolButton {{
+                    background: transparent;
+                    color: {theme['btn_text']};
                     border: 1px solid transparent;
+                    border-radius: 5px;
                 }}
-                QSplitter::handle:hover {{
-                    background-color: {handle_hover};
+                QWidget#panelHeader QToolButton:hover {{ background: {theme['btn_hover']}; }}
+                QWidget#panelHeader QToolButton:focus {{ border-color: {theme['accent']}; }}
+                QToolButton#panelToggle {{ font-size: 19px; }}
+                QToolButton#panelToggle[labeled="true"] {{ font-size: 12px; }}
+                QLabel#parseWarning {{
+                    background: {theme['warning_bg']};
+                    color: {theme['warning_text']};
+                    padding: 7px 10px;
                 }}
-                QSplitter::handle:pressed {{
-                    background-color: {theme['header_border']};
+                QMenuBar, QMenu {{
+                    background: {theme['header_bg']};
+                    color: {theme['text_color']};
                 }}
+                QMenu {{ border: 1px solid {theme['border_color']}; padding: 4px; }}
+                QMenu::item {{ padding: 5px 22px 5px 12px; }}
+                QMenu::item:selected, QMenuBar::item:selected {{ background: {theme['accent_soft']}; }}
+                QMenu::separator {{ height: 1px; background: {theme['header_border']}; margin: 4px; }}
+                QSplitter::handle {{ background: {theme['header_border']}; }}
+                QSplitter::handle:hover, QSplitter::handle:pressed {{ background: {theme['accent']}; }}
+                QFrame#workspacePanel[collapsed="true"] {{ background: {theme['header_border']}; }}
+                QFrame#workspacePanel[collapsed="true"]:hover {{ background: {theme['accent']}; }}
+                QScrollBar:vertical {{ width: 10px; background: transparent; }}
+                QScrollBar:horizontal {{ height: 10px; background: transparent; }}
+                QScrollBar::handle {{
+                    background: {theme['scrollbar_handle']};
+                    min-width: 25px;
+                    min-height: 25px;
+                    border: 2px solid {theme['input_bg']};
+                    border-radius: 5px;
+                }}
+                QScrollBar::handle:hover {{ background: {theme['scrollbar_handle_hover']}; }}
+                QScrollBar::add-line, QScrollBar::sub-line {{ width: 0; height: 0; }}
+                QScrollBar::add-page, QScrollBar::sub-page {{ background: transparent; }}
             """)
-            
-            # 8. 更新搜索面板主题
+
+            self.input_edit.set_theme(theme)
+            self.output_edit.set_theme(theme)
+            self.output_tree.set_theme(theme)
+            self.search_delegate.set_theme(theme)
+            self.highlighter.set_theme(theme)
+            self.update_pin_icon()
+            for panel in (self.left_panel, self.middle_panel, self.right_panel):
+                panel.set_theme(theme)
             for panel in self.search_panels.values():
                 panel.set_theme(theme)
-            
-            # 7. 更新按钮样式
-            for btn in [self.btn_format, self.btn_compress, self.btn_save, self.btn_copy,
-                        self.btn_layout_source_result, self.btn_layout_source_tree, 
-                        self.btn_layout_all, self.btn_layout_tree_result]:
-                btn.setStyleSheet(f"""
-                    QPushButton {{
-                        background-color: {theme['input_bg']};
-                        color: {theme['text_color']};
-                        border: 1px solid {theme['border_color']};
-                        border-radius: 4px;
-                        padding: 5px 15px;
-                    }}
-                    QPushButton:hover {{
-                        background-color: {theme['btn_hover']};
-                    }}
-                    QPushButton:pressed {{
-                        background-color: {theme['header_border']};
-                    }}
-                """)
-
-            # 单独设置图钉按钮样式：
-            # 未选中时保持和普通按钮一致；
-            # 选中时使用更明显的背景色，提示当前窗口处于置顶状态。
-            self.btn_pin_window.setStyleSheet(f"""
-                QToolButton {{
-                    background-color: {theme['input_bg']};
-                    color: {theme['text_color']};
-                    border: 1px solid {theme['border_color']};
-                    border-radius: 4px;
-                    padding: 5px 10px;
-                }}
-                QToolButton:hover {{
-                    background-color: {theme['btn_hover']};
-                }}
-                QToolButton:pressed {{
-                    background-color: {theme['header_border']};
-                }}
-                QToolButton:checked {{
-                    background-color: {theme['highlight']['highlight_bg']};
-                    color: {theme['highlight']['highlight_fg']};
-                    border: 1px solid {theme['highlight']['highlight_bg']};
-                }}
-            """)
         finally:
             self._is_applying_theme = False
+
+    def update_pin_icon(self):
+        theme = self.current_theme_data
+        color = theme["accent"] if self.is_pinned else theme["btn_text"]
+        self.btn_pin_window.setIcon(toolbar_icon("pin", color))
 
     # ====== 核心 JSON 处理逻辑 ======
     def parse_nested_json_value(self, value):
@@ -1401,142 +1336,64 @@ class JsonFormatterWindow(QWidget):
                     self.parse_nested_json_object(parsed_v)
         return obj
 
-    def process_json(self, text: str, show_error_dialog=True):
-        """
-        核心：格式化并渲染 JSON。
-        支持字段值为 JSON 字符串的情况。
-        :param text: 原始 JSON 文本
-        :param show_error_dialog: 是否显示错误弹窗（自动模式下不弹）
-        """
-        if not text:
+    def set_json_result(self, text, data=None, warning=""):
+        if text:
+            # 小文档保持默认展开，大文档在展开节点时创建对应的子项。
+            self.output_tree.set_json(data, lazy=len(text) >= 100_000)
+        else:
             self.output_tree.clear()
-            self.output_edit.setPlainText("")
-            self.highlighter.rehighlight()
+        self.output_edit.setPlainText(text)
+        self.search_panels["tree"].do_search()
+        self.parse_warning.setText(warning)
+        self.parse_warning.setVisible(bool(warning) and self.right_panel.is_expanded)
+
+    def process_json(self, text: str, show_error_dialog=True, expand_nested=False):
+        """格式化 JSON，或从混合文本中提取第一个有效的对象或数组。"""
+        if not text:
+            self.set_json_result("")
             return
 
+        warning = ""
+        warning_details = ""
         try:
             data = json.loads(text)
+        except json.JSONDecodeError as error:
+            extracted = self.extract_json_from_text(text)
+            if extracted is None:
+                self.set_json_result("")
+                if show_error_dialog:
+                    QMessageBox.critical(
+                        self, "格式化失败", f"{error.msg}\n行: {error.lineno}, 列: {error.colno}"
+                    )
+                return
+            data = extracted
+            warning = "已提取首个有效 JSON，结果仅包含提取的内容。"
+            warning_details = f"原始解析错误: {error.msg}（第 {error.lineno} 行，第 {error.colno} 列）"
+
+        if expand_nested:
             data = self.parse_nested_json_object(data)
 
-            # 更新树与右侧结果
-            self.populate_tree(data)
-            json_text = json.dumps(data, indent=4, ensure_ascii=False)
-            self.output_edit.setPlainText(json_text)
-            self.highlighter.rehighlight()  # 🔹 确保高亮
-
-        except json.JSONDecodeError as e:
-            # 自动触发 或 手动触发
-            # 尝试查找并提取混合内容中的 JSON
-            extracted_json, start_idx, end_idx = self.extract_json_from_text(text)
-            if extracted_json:
-                try:
-                    # 解析提取出的 JSON
-                    data = json.loads(extracted_json)
-                    data = self.parse_nested_json_object(data)
-                    
-                    # 更新树
-                    self.populate_tree(data)
-                    
-                    # 格式化 JSON
-                    formatted_json = json.dumps(data, indent=4, ensure_ascii=False)
-                    
-                    # 拼接到原文中（保留前后非 JSON 内容）
-                    prefix = text[:start_idx]
-                    suffix = text[end_idx:]
-                    
-                    # 构造错误提示信息
-                    error_msg = f"// ⚠️ 解析警告：第 {e.lineno} 行解析错误，原因：{e.msg}\n"
-                    
-                    final_text = f"{error_msg}{prefix}{formatted_json}{suffix}"
-                    
-                    self.output_edit.setPlainText(final_text)
-                    self.highlighter.rehighlight()
-                    
-                    # 弹出警告提示（如果是自动触发，就不弹窗干扰了，改用状态栏或其他方式提示更好）
-                    if show_error_dialog:
-                        msg_info = (f"虽然提取并格式化了其中的 JSON 内容，\n"
-                                    f"但输入的文本包含非 JSON 字符，请检查原始数据。\n\n"
-                                    f"原始解析错误:\n{e.msg}\n行: {e.lineno}, 列: {e.colno}")
-                        QMessageBox.warning(self, "JSON 格式有误", msg_info)
-                    else:
-                        pass
-                    return
-
-                except Exception as inner_e:
-                    pass # 提取后的解析还是失败，继续显示原来的错误
-
-            # 只有在手动触发时，才弹出错误对话框
-            if show_error_dialog:
-                QMessageBox.critical(self, "格式化失败", f"{e.msg}\n行: {e.lineno}, 列: {e.colno}")
-            else:
-                self.output_tree.clear()
-                self.output_edit.setPlainText("")
-                self.highlighter.rehighlight()
+        self.set_json_result(json.dumps(data, indent=4, ensure_ascii=False), data, warning)
+        if warning and show_error_dialog:
+            QMessageBox.warning(self, "输入包含非 JSON 内容", f"{warning}\n{warning_details}")
 
     def extract_json_from_text(self, text):
-        """
-        尝试从文本中提取第一个有效的 JSON 对象或数组
-        返回: (json_str, start_index, end_index)
-        """
-        text = text.strip()
-        
-        # 1. 寻找第一个 { 或 [
-        start_idx = -1
-        for i, char in enumerate(text):
-            if char in '{[':
-                start_idx = i
-                break
-                
-        if start_idx == -1:
-            return None, -1, -1
-            
-        # 2. 从 start_idx 开始匹配括号
-        stack = []
-        in_string = False
-        escape = False
-        
-        for i in range(start_idx, len(text)):
-            char = text[i]
-            
-            if in_string:
-                if escape:
-                    escape = False
-                elif char == '\\':
-                    escape = True
-                elif char == '"':
-                    in_string = False
-            else:
-                if char == '"':
-                    in_string = True
-                elif char in '{[':
-                    stack.append(char)
-                elif char in '}]':
-                    if not stack:
-                        # 只有右括号没有左括号，说明匹配失败（可能是多余的符号）
-                        continue 
-                    
-                    last = stack[-1]
-                    if (char == '}' and last == '{') or (char == ']' and last == '['):
-                        stack.pop()
-                        # 如果栈空了，说明找到了一个完整的闭合 JSON 对象
-                        if not stack:
-                            # 截取候选 JSON
-                            candidate = text[start_idx : i+1]
-                            # 尝试验证解析
-                            try:
-                                json.loads(candidate)
-                                return candidate, start_idx, i+1
-                            except:
-                                # 解析失败，继续寻找（可能只是碰巧匹配了括号但内容不对）
-                                pass
-        
-        return None, -1, -1
+        """返回混合文本中的第一个有效 JSON 对象或数组。"""
+        decoder = json.JSONDecoder()
+        for match in re.finditer(r"[{\[]", text):
+            try:
+                data, _ = decoder.raw_decode(text, match.start())
+                return data
+            except (json.JSONDecodeError, RecursionError):
+                continue
+        return None
 
     # ====== 自动格式化输入 JSON ======
     def auto_format_input(self):
         """
         自动格式化：实时解析输入（不弹窗提示错误）
         """
+        self.format_timer.stop()
         text = self.input_edit.toPlainText().strip()
         self.process_json(text, show_error_dialog=False)
 
@@ -1545,6 +1402,7 @@ class JsonFormatterWindow(QWidget):
         """
         按钮触发格式化：会显示错误提示框
         """
+        self.format_timer.stop()
         text = self.input_edit.toPlainText().strip()
         self.process_json(text, show_error_dialog=True)
 
@@ -1697,135 +1555,75 @@ class JsonFormatterWindow(QWidget):
         return candidate
 
     def loose_parse_json(self):
+        self.format_timer.stop()
         text = self.input_edit.toPlainText().strip()
         normalized = self.normalize_loose_json_text(text)
         normalized = self.try_repair_loose_json_text(normalized)
-        self.process_json(normalized, show_error_dialog=True)
+        self.process_json(normalized, show_error_dialog=True, expand_nested=True)
 
     # ====== 新建窗口静态方法 ======
     @staticmethod
+    def new_json_window_action():
+        app = QApplication.instance()
+        action = getattr(app, "new_json_window_action", None)
+        if action is None:
+            # 同一个 QAction 可加入多个窗口，避免应用级快捷键重复注册。
+            action = QAction("新建 JSON 窗口", app)
+            action.setShortcuts(QKeySequence.StandardKey.New)
+            action.setShortcutContext(Qt.ApplicationShortcut)
+            action.triggered.connect(JsonFormatterWindow.new_window_static)
+            app.new_json_window_action = action
+        return action
+
+    @staticmethod
     def new_window_static():
+        """新建并显示一个 JSON 窗口；注册在 __init__ 内完成。"""
         win = JsonFormatterWindow()
         win.show()
 
+    @staticmethod
+    def quit_app():
+        QApplication.quit()
+
     def open_string_formatter_window(self):
+        """
+        打开字符串格式化窗口（复用语义）：
+        若窗口已存在，只恢复并激活它，
+        不重复创建，也绝不隐藏其他窗口。
+        """
+        manager = WindowManager.instance()
+        entry = manager.first_entry_of_kind("string")
+        if entry is not None:
+            manager.show_and_activate(entry.window_id)
+            return
         win = FormatterWindow()
+        win.addAction(self.new_json_window_action())
+        manager.register(win, title="String 工具", kind="string")
         win.show()
-        JsonFormatterWindow.tool_windows.append(win)
 
     def open_timestamp_converter_window(self):
+        """打开时间戳转换窗口（复用语义，同字符串窗口）。"""
+        manager = WindowManager.instance()
+        entry = manager.first_entry_of_kind("timestamp")
+        if entry is not None:
+            manager.show_and_activate(entry.window_id)
+            return
         win = TimestampConverterWindow()
+        win.addAction(self.new_json_window_action())
+        manager.register(win, title="时间戳工具", kind="timestamp")
         win.show()
-        JsonFormatterWindow.tool_windows.append(win)
 
-    # ====== 构建树 ======
-    def populate_tree(self, data, parent=None, key_name=None):
-        """
-        将 JSON 数据转换为 QTreeWidgetItem 树形结构
-        """
-        if parent is None:
-            self.output_tree.clear()
-            parent = self.output_tree
-
-        # 设置中间树的文字颜色
-        color = QColor("#62b37a")
-
-        if isinstance(data, dict):
-            item = QTreeWidgetItem([key_name] if key_name else "")
-            item.setForeground(0, color)  # 设置文字颜色
-            if parent is self.output_tree:
-                parent.addTopLevelItem(item)
-            else:
-                parent.addChild(item)
-            item.setExpanded(True)
-            for k, v in data.items():
-                self.populate_tree(v, item, k)
-
-        elif isinstance(data, list):
-            item = QTreeWidgetItem([key_name] if key_name else "")
-            item.setForeground(0, color)  # 设置文字颜色
-            if parent is self.output_tree:
-                parent.addTopLevelItem(item)
-            else:
-                parent.addChild(item)
-            item.setExpanded(True)
-            for i, v in enumerate(data):
-                self.populate_tree(v, item, f"[{i}]")
-        else:
-            text = f"{key_name}: {data}" if key_name else str(data)
-            item = QTreeWidgetItem([text])
-            item.setForeground(0, color)  # 设置文字颜色
-            if parent is self.output_tree:
-                parent.addTopLevelItem(item)
-            else:
-                parent.addChild(item)
-            item.setData(0, QtCore.Qt.UserRole, json.dumps({"k": key_name, "v": data}, ensure_ascii=False))
-            item.setChildIndicatorPolicy(QTreeWidgetItem.DontShowIndicator)
-
-    # ====== 点击树节点显示对应 JSON ======
     def on_tree_item_clicked(self, item, column):
-        """
-        点击树节点时，在右侧显示对应 JSON，并高亮 key。
-        """
-
-        def item_to_json(it):
-            """
-            递归从树节点生成 JSON 数据。
-            """
-            child_count = it.childCount()
-            # 叶子节点
-            if child_count == 0:
-                # 叶子节点直接取 UserRole 数据
-                data = it.data(0, Qt.UserRole)
-                if isinstance(data, str):
-                    try:
-                        payload = json.loads(data)
-                    except Exception:
-                        payload = None
-                    if isinstance(payload, dict) and "k" in payload and "v" in payload:
-                        key, value = payload["k"], payload["v"]
-                        return {key: value} if key else value
-                if isinstance(data, tuple) and len(data) == 2:
-                    key, value = data
-                    return {key: value} if key else value
-                else:
-                    return data
-            # 非叶子节点
-            else:
-                # 判断是否列表节点
-                is_list = all(it.child(i).text(0).startswith('[') for i in range(child_count))
-                if is_list:
-                    return [item_to_json(it.child(i)) for i in range(child_count)]
-                else:
-                    result = {}
-                    for i in range(child_count):
-                        child = it.child(i)
-                        key = child.text(0).split(":", 1)[0] if ":" in child.text(0) else child.text(0)
-                        value = item_to_json(child)
-                        # 如果 value 已经是 dict 包裹，则展开
-                        if isinstance(value, dict) and len(value) == 1 and list(value.keys())[0] == key:
-                            value = list(value.values())[0]
-                        result[key] = value
-                    return result
-
-        try:
-            # 生成 JSON 数据
-            node_data = item_to_json(item)
-            json_text = json.dumps(node_data, indent=4, ensure_ascii=False)
-            self.output_edit.setPlainText(json_text)
-            # 🔹 确保高亮显示
-            self.highlighter.rehighlight()
-
-        except Exception:
-            # 万一出错就直接显示文本
-            self.output_edit.setPlainText(item.text(0))
-            self.highlighter.rehighlight()
+        data = item.json_value
+        if not isinstance(data, (dict, list)) and item.json_key is not None:
+            data = {item.json_key: data}
+        self.output_edit.setPlainText(json.dumps(data, indent=4, ensure_ascii=False))
 
     # ====== 右键菜单 ======
     def open_tree_context_menu(self, position):
-        """
-        显示树形控件的右键菜单
-        """
+        """显示树形控件的右键菜单。"""
+        if self.format_timer.isActive():
+            self.auto_format_input()
         menu = QMenu()
         
         # 获取当前选中的节点
@@ -1842,7 +1640,7 @@ class JsonFormatterWindow(QWidget):
             menu.addSeparator()
             
             expand_recursive_action = menu.addAction("递归展开此节点")
-            expand_recursive_action.triggered.connect(lambda: self.expand_recursive(item))
+            expand_recursive_action.triggered.connect(lambda: self.output_tree.expand_subtree(item))
             
             collapse_recursive_action = menu.addAction("递归折叠此节点")
             collapse_recursive_action.triggered.connect(lambda: self.collapse_recursive(item))
@@ -1862,12 +1660,6 @@ class JsonFormatterWindow(QWidget):
         collapse_all_action.triggered.connect(self.output_tree.collapseAll)
         
         menu.exec(self.output_tree.viewport().mapToGlobal(position))
-
-    def expand_recursive(self, item):
-        """递归展开节点"""
-        self.output_tree.expandItem(item)
-        for i in range(item.childCount()):
-            self.expand_recursive(item.child(i))
 
     def collapse_recursive(self, item):
         """递归折叠节点"""
@@ -1909,11 +1701,8 @@ class JsonFormatterWindow(QWidget):
         try:
             data = json.loads(text)
             compressed = json.dumps(data, separators=(',', ':'), ensure_ascii=False)
-            # 更新树
-            self.populate_tree(json.loads(compressed))
-            # 更新右侧文本并高亮
-            self.output_edit.setPlainText(compressed)
-            self.highlighter.rehighlight()
+            self.format_timer.stop()
+            self.set_json_result(compressed, data)
         except json.JSONDecodeError as e:
             QMessageBox.critical(self, "压缩失败", f"{e.msg}\n行: {e.lineno}, 列: {e.colno}")
 
@@ -1921,6 +1710,8 @@ class JsonFormatterWindow(QWidget):
         """
         保存右侧 JSON 结果到文件
         """
+        if self.format_timer.isActive():
+            self.auto_format_input()
         text = self.output_edit.toPlainText().strip()
         if not text:
             return
@@ -1936,25 +1727,79 @@ class JsonFormatterWindow(QWidget):
         """
         复制 JSON 结果到剪贴板，并显示提示
         """
+        if self.format_timer.isActive():
+            self.auto_format_input()
         text = self.output_edit.toPlainText()
         if text:
             QApplication.clipboard().setText(text)
-            tip = QLabel("✅ JSON结果 已复制到剪贴板", self)
-            tip.setStyleSheet("""
-                background-color: #28a745;  /* 绿色提示 */
-                color: white;              
-                padding: 12px 20px;        
-                border-radius: 8px;        
-                font-size: 16pt;           
-                font-weight: bold;
-            """)
-            tip.setAlignment(QtCore.Qt.AlignCenter)
-            tip.setWindowFlags(QtCore.Qt.ToolTip | QtCore.Qt.FramelessWindowHint)
-            tip.adjustSize()
-            # 居中显示在窗口
-            tip.move(self.geometry().center() - tip.rect().center())
-            tip.show()
-            QtCore.QTimer.singleShot(800, tip.close)  # 0.8秒自动关闭
+            self.btn_copy.setText("复制成功")
+            self.copy_feedback.start(1200)
+
+    def collapsed_panel_at_handle(self, index):
+        for panel in (self.splitter.widget(index - 1), self.splitter.widget(index)):
+            if not panel.is_expanded and not panel.isHidden():
+                return panel
+        return None
+
+    def toggle_workspace_panel(self, panel):
+        if panel.is_expanded and sum(current.is_expanded for current in self.workspace_panels) == 1:
+            self.switch_layout(True, True, True)
+            return
+
+        panel.set_expanded(not panel.is_expanded)
+
+    def update_panel_toggles(self, visible_indices):
+        for panel in self.workspace_panels:
+            for controls in (panel.leading_controls, panel.trailing_controls):
+                while controls.count():
+                    controls.takeAt(0)
+
+        for index, panel in enumerate(self.workspace_panels):
+            if not visible_indices:
+                panel.toggle_btn.hide()
+                continue
+            nearest = min(visible_indices, key=lambda visible: abs(visible - index))
+            host = self.workspace_panels[nearest]
+            if index == nearest:
+                panel.update_toggle_button(restore=len(visible_indices) == 1)
+                host.trailing_controls.addWidget(panel.toggle_btn)
+            elif index < nearest:
+                panel.update_toggle_button(destination="left")
+                host.leading_controls.addWidget(panel.toggle_btn)
+            else:
+                panel.update_toggle_button(destination="right")
+                host.trailing_controls.addWidget(panel.toggle_btn)
+            panel.toggle_btn.show()
+
+    def update_splitter_handles(self):
+        editors_only = (
+            self.left_panel.is_expanded
+            and not self.middle_panel.is_expanded
+            and self.right_panel.is_expanded
+        )
+        # 隐藏中栏后，QSplitter 会在两个编辑区之间只保留一个可拖动手柄。
+        self.middle_panel.setVisible(not editors_only)
+
+        visible_indices = [index for index, panel in enumerate(self.workspace_panels) if panel.is_expanded]
+        self.update_panel_toggles(visible_indices)
+
+        for index in range(1, self.splitter.count()):
+            handle = self.splitter.handle(index)
+            panel = self.collapsed_panel_at_handle(index)
+            handle.setCursor(Qt.PointingHandCursor if panel else Qt.SplitHCursor)
+            handle.setToolTip(panel.toolTip() if panel else "")
+        self.schedule_layout_save()
+
+    def eventFilter(self, watched, event):
+        if event.type() == QtCore.QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+            for index in range(1, self.splitter.count()):
+                if watched is self.splitter.handle(index):
+                    panel = self.collapsed_panel_at_handle(index)
+                    if panel is not None:
+                        panel.set_expanded(True)
+                        return True
+                    break
+        return super().eventFilter(watched, event)
 
     def switch_layout(self, show_left, show_mid, show_right):
         """
@@ -1963,20 +1808,21 @@ class JsonFormatterWindow(QWidget):
         :param show_mid: 是否显示 JSON 树
         :param show_right: 是否显示 JSON 结果
         """
-        # 1. 设置面板展开/折叠状态
+        visible_count = sum((show_left, show_mid, show_right))
+        if visible_count == 0:
+            return
+
         self.left_panel.set_expanded(show_left)
         self.middle_panel.set_expanded(show_mid)
         self.right_panel.set_expanded(show_right)
         
-        # 2. 计算并设置 splitter 比例
-        # 统计需要显示的面板数量
-        visible_count = sum([show_left, show_mid, show_right])
-        if visible_count == 0:
+        total_width = self.splitter.width()
+        if visible_count == 3:
+            self.splitter.setSizes(self.default_splitter_sizes())
+            self.schedule_layout_save()
             return
 
-        total_width = self.splitter.width()
-        # 预留给折叠面板的宽度 (16px per collapsed panel)
-        collapsed_width = 16
+        collapsed_width = CollapsiblePanel.COLLAPSED_WIDTH
         
         sizes = []
         
@@ -2002,9 +1848,7 @@ class JsonFormatterWindow(QWidget):
         return QtCore.QSettings(self.SETTINGS_ORG, self.SETTINGS_APP)
 
     def default_splitter_sizes(self):
-        # 默认恢复为真正的三栏布局，三栏平均分配可用宽度。
-        total_width = self.DEFAULT_WINDOW_WIDTH
-        return [total_width // 3, total_width // 3, total_width // 3]
+        return [self.DEFAULT_WINDOW_WIDTH * ratio // 100 for ratio in (35, 25, 40)]
 
     def schedule_layout_save(self):
         # 连续调整窗口大小或 splitter 时只在短暂停顿后写一次配置，减少无意义写盘。
@@ -2058,6 +1902,8 @@ class JsonFormatterWindow(QWidget):
         self.left_panel.set_expanded(str(settings.value("left_expanded", True)).lower() in ("true", "1"))
         self.middle_panel.set_expanded(str(settings.value("middle_expanded", False)).lower() in ("true", "1"))
         self.right_panel.set_expanded(str(settings.value("right_expanded", True)).lower() in ("true", "1"))
+        if not any(panel.is_expanded for panel in (self.left_panel, self.middle_panel, self.right_panel)):
+            self.left_panel.set_expanded(True)
 
         settings.endGroup()
 
@@ -2071,7 +1917,7 @@ class JsonFormatterWindow(QWidget):
         # 恢复到应用默认布局：
         # 1. 窗口大小恢复到默认值
         # 2. 三栏全部展开
-        # 3. splitter 恢复成均分比例
+        # 3. splitter 恢复默认三栏比例
         self.resize(self.DEFAULT_WINDOW_WIDTH, self.DEFAULT_WINDOW_HEIGHT)
         self.left_panel.set_expanded(True)
         self.middle_panel.set_expanded(True)
@@ -2091,7 +1937,22 @@ class JsonFormatterWindow(QWidget):
 
     def closeEvent(self, event):
         self.save_layout_state()
-        super().closeEvent(event)
+        manager = WindowManager.instance()
+        if manager.is_quitting:
+            super().closeEvent(event)
+            return
+        event.ignore()
+        manager.request_close_window(self)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        # 窗口变为可见（含从 orderOut 恢复）：刷新「窗口」菜单 ✓ 状态。
+        # visibilityChanged 信号也会触发刷新，这里作为兼容兑底。
+        WindowManager.instance().rebuild_menus()
+
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        WindowManager.instance().rebuild_menus()
 
     def open_file(self):
         file_name, _ = QFileDialog.getOpenFileName(self, "打开 JSON 文件", "", "JSON 文件 (*.json)")
@@ -2100,6 +1961,7 @@ class JsonFormatterWindow(QWidget):
                 with open(file_name, 'r', encoding='utf-8') as f:
                     text = f.read()
                 self.input_edit.setPlainText(text)
+                self.auto_format_input()
             except Exception as e:
                 QMessageBox.critical(self, "打开失败", str(e))
 
@@ -2124,6 +1986,9 @@ class JsonFormatterWindow(QWidget):
 
     def current_editor_key(self):
         w = QApplication.focusWidget()
+        for key, panel in self.search_panels.items():
+            if w is not None and (w is panel or panel.isAncestorOf(w)):
+                return key
 
         if w in (self.input_edit, self.input_edit.viewport()):
             return "input"
@@ -2136,8 +2001,8 @@ class JsonFormatterWindow(QWidget):
 
         return None
 
-    def open_search(self):
-        key = self.current_editor_key()
+    def open_search(self, key=None):
+        key = key or self.current_editor_key()
         
         # 如果没有焦点，优先尝试输入框，其次输出框
         if not key:
@@ -2164,6 +2029,8 @@ class JsonFormatterWindow(QWidget):
         elif key == "output" and not self.right_panel.is_expanded:
              self.right_panel.set_expanded(True)
 
+        if key != "input" and self.format_timer.isActive():
+            self.auto_format_input()
         panel = self.search_panels[key]
         panel.reposition()
         panel.show()
@@ -2200,7 +2067,6 @@ class JsonHighlighter(QSyntaxHighlighter):
             "number": self.make_format(colors["number"]),
             "bool": self.make_format(colors["bool"]),
             "null": self.make_format(colors["null"]),
-            "highlight": self.make_format(colors["highlight_fg"], bg=colors["highlight_bg"], bold=True)
         }
 
     def make_format(self, color, bg=None, bold=False):
@@ -2212,33 +2078,38 @@ class JsonHighlighter(QSyntaxHighlighter):
             fmt.setFontWeight(QFont.Bold)
         return fmt
 
+    tokens = re.compile(
+        r'(?P<string>"(?:[^"\\]|\\.)*")(?P<key>\s*:)?'
+        r'|(?P<number>-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)'
+        r'|(?P<boolean>true|false)|(?P<null>null)'
+    )
+    supplementary_char = re.compile(r'[\U00010000-\U0010FFFF]')
+
     def highlightBlock(self, text):
-        import re
+        supplementary = self.supplementary_char.finditer(text)
+        extra_unit = next(supplementary, None)
+        offset = 0
+        for match in self.tokens.finditer(text):
+            kind = match.lastgroup
+            if kind in ("string", "key"):
+                start, end = match.span("string")
+                start += 1
+                end -= 1
+            else:
+                start, end = match.span()
+                if kind == "boolean":
+                    kind = "bool"
 
-        # ---- 1. 匹配 key ----
-        for match in re.finditer(r'"(.*?)"\s*:', text):
-            self.setFormat(match.start(1), match.end(1) - match.start(1), self.formats["key"])
+            # Qt positions are UTF-16 units. Python match positions count code points.
+            while extra_unit is not None and extra_unit.start() < start:
+                offset += 1
+                extra_unit = next(supplementary, None)
+            qt_start = start + offset
+            while extra_unit is not None and extra_unit.start() < end:
+                offset += 1
+                extra_unit = next(supplementary, None)
+            self.setFormat(qt_start, end + offset - qt_start, self.formats[kind])
 
-        # ---- 2. 匹配字符串 ----
-        # 冒号后面跟双引号里的内容，包括日期时间等
-        for match in re.finditer(r':\s*"([^"]*)"', text):
-            self.setFormat(match.start(1), match.end(1) - match.start(1), self.formats["string"])
-
-        # ---- 3. 匹配布尔值/Null ----
-        # 只匹配不在引号内的 true/false/null
-        for match in re.finditer(r':\s*(true|false|null)(?=[,\}\]])', text):
-            val = match.group(1)
-            fmt = self.formats["null"] if val == "null" else self.formats["bool"]
-            self.setFormat(match.start(1), match.end(1) - match.start(1), fmt)
-
-        # ---- 4. 匹配数字 ----
-        # 只匹配冒号后跟的纯数字，不匹配带空格或在字符串内的数字
-        for match in re.finditer(r':\s*(-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?)(?=[,\}\]])', text):
-            self.setFormat(match.start(1), match.end(1) - match.start(1), self.formats["number"])
-
-
-from PySide6.QtWidgets import QWidget, QLineEdit, QLabel, QPushButton, QHBoxLayout
-from PySide6.QtGui import QTextCursor
 
 class SearchPanel(QWidget):
     def __init__(self, parent, editor):
@@ -2250,16 +2121,22 @@ class SearchPanel(QWidget):
 
         # 布局
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(5, 5, 5, 5)
+        layout.setContentsMargins(7, 6, 5, 6)
+        layout.setSpacing(3)
 
         self.search_edit = QLineEdit()
         self.search_edit.setPlaceholderText("搜索")
+        self.search_edit.setMinimumWidth(0)
         # 👉 让 ESC 等同关闭
         self.search_edit.installEventFilter(self)
         self.label = QLabel("0 / 0")
         self.btn_prev = QPushButton("↑")
         self.btn_next = QPushButton("↓")
         self.btn_close = QPushButton("✕")
+        for button, label in ((self.btn_prev, "上一处"), (self.btn_next, "下一处"), (self.btn_close, "关闭搜索")):
+            button.setToolTip(label)
+            button.setAccessibleName(label)
+            button.setFixedWidth(22)
 
         layout.addWidget(self.search_edit)
         layout.addWidget(self.label)
@@ -2271,7 +2148,14 @@ class SearchPanel(QWidget):
         # self.highlighter = SearchHighlighter(self.editor.document())
 
         self.matches = []
+        self.match_selections = []
         self.index = 0
+        if isinstance(editor, CodeEditor):
+            self.search_timer = QtCore.QTimer(self)
+            self.search_timer.setSingleShot(True)
+            self.search_timer.setInterval(150)
+            self.search_timer.timeout.connect(self.refresh_matches)
+            editor.textChanged.connect(self.schedule_search_refresh)
 
         # 信号
         self.btn_close.clicked.connect(self.close_search)
@@ -2284,77 +2168,86 @@ class SearchPanel(QWidget):
         self.search_edit.clear()
         self.hide()
 
-    def set_theme(self, theme_config):
-        self.theme = theme_config
-        # 设置面板样式
+    def set_theme(self, theme):
+        self.theme = theme
         self.setStyleSheet(f"""
             SearchPanel {{
-                background-color: {self.theme['header_bg']};
-                border: 1px solid {self.theme['header_border']};
-                border-radius: 4px;
+                background: {theme['header_bg']};
+                border-bottom: 1px solid {theme['header_border']};
             }}
-            QLabel {{
-                color: {self.theme['text_color']};
-            }}
+            QLabel {{ color: {theme['tree_value']}; }}
             QLineEdit {{
-                background-color: {self.theme['input_bg']};
-                color: {self.theme['text_color']};
-                border: 1px solid {self.theme['border_color']};
-                border-radius: 2px;
-                padding: 2px;
+                background: {theme['input_bg']};
+                color: {theme['text_color']};
+                border: 1px solid {theme['border_color']};
+                border-radius: 5px;
+                min-height: 24px;
+                padding: 0 6px;
             }}
+            QLineEdit:focus {{ border-color: {theme['accent']}; }}
             QPushButton {{
-                background-color: {self.theme['btn_bg']};
-                color: {self.theme['btn_text']};
-                border: none;
-                border-radius: 2px;
-                padding: 2px 8px;
+                background: transparent;
+                color: {theme['btn_text']};
+                border: 1px solid transparent;
+                border-radius: 4px;
+                min-height: 24px;
             }}
-            QPushButton:hover {{
-                background-color: {self.theme['btn_hover']};
-            }}
+            QPushButton:hover {{ background: {theme['btn_hover']}; }}
+            QPushButton:focus {{ border-color: {theme['accent']}; }}
         """)
-        
-        # 重新触发搜索高亮以更新颜色
         if self.search_edit.text():
-            self.highlight_search(self.search_edit.text())
+            self.refresh_highlight()
 
     def reposition(self):
         # 布局管理模式下不需要手动定位
         pass
         
+    def schedule_search_refresh(self):
+        if self.search_edit.text():
+            self.search_timer.start()
+
     def do_search(self):
-        text = self.search_edit.text()
-        if isinstance(self.editor, CodeEditor):
+        if self.search_edit.text():
             self.editor.expand_all_folds()
-        self.highlight_search(text)
-
-        self.matches.clear()
-
-        if not text:
-            self.label.setText("0 / 0")
-            return
-
-        doc = self.editor.document()
-        cursor = QTextCursor(doc)
-        cursor.setPosition(0)
-
-        # 查找所有匹配位置
-        while True:
-            found = doc.find(text, cursor)
-            if found.isNull():
-                break
-
-            # 使用独立 cursor，避免被 find 内部复用导致高亮错乱
-            cursor = QTextCursor(found)
-
-            self.matches.append(cursor.selectionStart())
-
-        self.index = 0
-        self.update_label()
-
+        self.refresh_matches()
         if self.matches:
             self.goto(0)
+
+    def refresh_matches(self):
+        self.search_timer.stop()
+        self.matches.clear()
+        self.index = 0
+        keyword = self.search_edit.text()
+        if keyword:
+            document = self.editor.document()
+            cursor = document.find(keyword)
+            while not cursor.isNull():
+                self.matches.append(cursor)
+                cursor = document.find(keyword, cursor)
+        self.refresh_highlight()
+        self.update_label()
+
+    def refresh_highlight(self):
+        match_format = QTextCharFormat()
+        match_format.setBackground(QColor(self.theme["highlight"]["search_match"]))
+        self.match_selections = []
+        for cursor in self.matches:
+            selection = QTextEdit.ExtraSelection()
+            selection.cursor = cursor
+            selection.format = match_format
+            self.match_selections.append(selection)
+        self.show_current_highlight()
+
+    def show_current_highlight(self, cursor=None):
+        selections = self.match_selections
+        if selections:
+            current = QTextEdit.ExtraSelection()
+            current.cursor = self.matches[self.index]
+            current.format.setBackground(QColor(self.theme["highlight"]["search_current"]))
+            current.format.setForeground(QColor(self.theme["highlight"]["highlight_fg"]))
+            current.format.setFontWeight(QFont.Bold)
+            selections = [*selections, current]
+        self.editor.set_search_selections(selections, cursor)
 
     def update_label(self):
         if not self.matches:
@@ -2363,154 +2256,26 @@ class SearchPanel(QWidget):
             self.label.setText(f"{self.index+1} / {len(self.matches)}")
 
     def goto(self, idx):
-        if not self.matches:
-            return
-
         self.index = idx
-        current_pos = self.matches[idx]
-        keyword = self.search_edit.text()
-        length = len(keyword)
-        doc = self.editor.document()
-        extra = []
-
-        # 全部匹配（每个 selection 都用 QTextCursor 的拷贝）
-        cursor_iter = QTextCursor(doc)
-        while True:
-            cursor_iter = doc.find(keyword, cursor_iter)
-            if cursor_iter.isNull():
-                break
-            sel = QTextEdit.ExtraSelection()
-            sel.cursor = QTextCursor(cursor_iter)  # <-- 显式拷贝
-            fmt_all = QTextCharFormat()
-            fmt_all.setBackground(QColor(self.theme['highlight']['search_match']))  # 主题色
-            sel.format = fmt_all
-            extra.append(sel)
-
-        # ---------- 在这里加入“整行浅蓝色高亮”（空选区 + FullWidthSelection） ----------
-        # 注意：必须在设置所有搜索高亮之前构造或附加该项，以便同时显示
-        # 如果是 CodeEditor，它自己会处理当前行高亮，这里不需要添加
-        if not isinstance(self.editor, CodeEditor):
-            line_cursor = QTextCursor(doc)
-            # 把光标放在 current_pos（但不选中任何字符，保持空选区）
-            line_cursor.setPosition(current_pos)
-            line_sel = QTextEdit.ExtraSelection()
-            line_sel.cursor = QTextCursor(line_cursor)  # 空选区的独立 cursor
-            line_fmt = line_sel.format
-            # 使用主题中的当前行颜色
-            line_fmt.setBackground(QColor(self.theme['current_line']))  
-            line_fmt.setProperty(QTextFormat.FullWidthSelection, True)
-            line_sel.format = line_fmt
-            # 将整行高亮放到 extra 的最前面（视觉上与关键字红色叠加良好）
-            extra.insert(0, line_sel)
-
-        # 当前匹配项（显式拷贝 cursor 并使用更醒目的格式）
-        cur = QTextCursor(doc)
-        cur.setPosition(current_pos)
-        cur.movePosition(QTextCursor.Right, QTextCursor.KeepAnchor, length)
-        sel_cur = QTextEdit.ExtraSelection()
-        sel_cur.cursor = QTextCursor(cur)  # <-- 拷贝
-        fmt = QTextCharFormat()
-        fmt.setBackground(QColor(self.theme['highlight']['search_current']))  # 主题色
-        fmt.setForeground(QColor(self.theme['highlight']['highlight_fg']))  # 主题色
-        fmt.setFontWeight(QFont.Bold)
-        # 不要把 FullWidthSelection 设置成 True —— 否则会覆盖整行蓝色
-        sel_cur.format = fmt
-        extra.append(sel_cur)
-
-        # 应用 ExtraSelections（包含：整行蓝 + 所有绿 + 当前红）
-        if isinstance(self.editor, CodeEditor):
-            self.editor.set_search_selections(extra)
-        else:
-            self.editor.setExtraSelections(extra)
-
-        # 把文本光标移动到当前匹配的起始位置（但不KeepAnchor，不形成真实选中，这样不会覆盖 ExtraSelection）
-        move_cursor = self.editor.textCursor()
-        move_cursor.setPosition(current_pos)
-        self.editor.setTextCursor(move_cursor)
-        if isinstance(self.editor, CodeEditor):
-            self.editor.expand_folds_for_position(current_pos)
+        position = self.matches[idx].selectionStart()
+        self.editor.expand_folds_for_position(position)
+        cursor = self.editor.textCursor()
+        cursor.setPosition(position)
+        self.show_current_highlight(cursor)
         self.editor.ensureCursorVisible()
-
-        # 强制刷新（确保视觉更新）
-        self.editor.viewport().update()
-        # 尝试调用 parent 的 highlighter 刷新，如果有的话
-        if hasattr(self.parent, 'highlighter'):
-            self.parent.highlighter.rehighlight()
         self.update_label()
 
     def next_match(self):
-        if not self.matches:
-            return
-        self.goto((self.index + 1) % len(self.matches))
+        if self.search_timer.isActive():
+            self.refresh_matches()
+        if self.matches:
+            self.goto((self.index + 1) % len(self.matches))
 
     def prev_match(self):
-        if not self.matches:
-            return
-        self.goto((self.index - 1) % len(self.matches))
-
-    def highlight_search(self, keyword, current_pos=None):
-        """
-        高亮搜索：
-          - 所有匹配：主题配置 search_match
-          - 当前匹配：主题配置 search_current
-          - 当前行整行：主题配置 current_line
-        """
-        extra = []
-
-        if not keyword:
-            if isinstance(self.editor, CodeEditor):
-                self.editor.set_search_selections([])
-            else:
-                self.editor.setExtraSelections([])
-            return
-
-        doc = self.editor.document()
-        cursor = QTextCursor(doc)
-
-        # 全部匹配
-        while True:
-            cursor = doc.find(keyword, cursor)
-            if cursor.isNull():
-                break
-            sel = QTextEdit.ExtraSelection()
-            sel.cursor = QTextCursor(cursor)
-            fmt_all = QTextCharFormat()
-            fmt_all.setBackground(QColor(self.theme['highlight']['search_match']))
-            sel.format = fmt_all
-            extra.append(sel)
-
-        # 当前匹配红色 + 整行浅蓝
-        if current_pos is not None:
-            # 当前行浅蓝背景 (CodeEditor 自动处理，非 CodeEditor 手动添加)
-            if not isinstance(self.editor, CodeEditor):
-                line_cursor = QTextCursor(doc)
-                line_cursor.setPosition(current_pos)
-                line_sel = QTextEdit.ExtraSelection()
-                line_sel.cursor = QTextCursor(line_cursor)
-                line_fmt = line_sel.format
-                line_fmt.setBackground(QColor(self.theme['current_line']))
-                line_fmt.setProperty(QTextFormat.FullWidthSelection, True)
-                line_sel.format = line_fmt
-                extra.insert(0, line_sel)
-
-            # 当前匹配红色背景 + 白字
-            keyword_cursor = QTextCursor(doc)
-            keyword_cursor.setPosition(current_pos)
-            keyword_cursor.movePosition(QTextCursor.Right, QTextCursor.KeepAnchor, len(keyword))
-            sel_cur = QTextEdit.ExtraSelection()
-            sel_cur.cursor = QTextCursor(keyword_cursor)
-            fmt = QTextCharFormat()
-            fmt.setBackground(QColor(self.theme['highlight']['search_current']))
-            fmt.setForeground(QColor(self.theme['highlight']['highlight_fg']))
-            fmt.setFontWeight(QFont.Bold)
-            sel_cur.format = fmt
-            extra.append(sel_cur)
-
-        if isinstance(self.editor, CodeEditor):
-            self.editor.set_search_selections(extra)
-        else:
-            self.editor.setExtraSelections(extra)
-        self.editor.viewport().update()
+        if self.search_timer.isActive():
+            self.refresh_matches()
+        if self.matches:
+            self.goto((self.index - 1) % len(self.matches))
 
     # 👉 加上 eventFilter（直接复制即可）
     def eventFilter(self, obj, event):
@@ -2531,44 +2296,21 @@ class TreeSearchPanel(SearchPanel):
     """
     def __init__(self, parent, editor):
         super().__init__(parent, editor)
-        self.tree_matches = []  # 存储匹配的 (QTreeWidgetItem, match_index)
+        self.tree_matches = []  # 存储节点路径和该节点内的匹配序号
 
     def do_search(self):
         text = self.search_edit.text()
-        
-        # 触发高亮 (设置全局 keyword)
         self.highlight_search(text)
-        
         self.tree_matches.clear()
-        
-        # 记得清除之前的高亮（如果有的话）
         self.index = 0
-        
-        if not text:
-            self.label.setText("0 / 0")
-            return
 
-        import re
-        try:
+        if text:
             pattern = re.compile(re.escape(text), re.IGNORECASE)
-            
-            # 遍历树的所有节点
-            iterator = QTreeWidgetItemIterator(self.editor)
-            while iterator.value():
-                item = iterator.value()
-                item_text = item.text(0)
-                
-                # 查找该节点内的所有匹配
-                matches = list(pattern.finditer(item_text))
-                for i in range(len(matches)):
-                    self.tree_matches.append((item, i))
-                    
-                iterator += 1
-        except Exception:
-            pass
+            for path, label in self.editor.iter_labels():
+                for match_index, _ in enumerate(pattern.finditer(label)):
+                    self.tree_matches.append((path, match_index))
 
         self.update_label()
-
         if self.tree_matches:
             self.goto(0)
 
@@ -2587,15 +2329,8 @@ class TreeSearchPanel(SearchPanel):
             return
 
         self.index = idx
-        item, match_index = self.tree_matches[idx]
-
-        # 1. 确保父节点全部展开
-        parent = item.parent()
-        while parent:
-            parent.setExpanded(True)
-            parent = parent.parent()
-
-        # 2. 选中并滚动到该节点
+        path, match_index = self.tree_matches[idx]
+        item = self.editor.reveal_path(path)
         self.editor.setCurrentItem(item)
         self.editor.scrollToItem(item)
         
@@ -2617,7 +2352,14 @@ class TreeSearchPanel(SearchPanel):
             return
         self.goto((self.index - 1) % len(self.tree_matches))
 
-    def highlight_search(self, keyword, current_pos=None):
+    def refresh_highlight(self):
+        self.highlight_search(self.search_edit.text())
+        if self.tree_matches:
+            path, match_index = self.tree_matches[self.index]
+            item = self.editor.reveal_path(path)
+            self.editor.itemDelegate().set_current_match(item, match_index)
+
+    def highlight_search(self, keyword):
         # 树控件文本内的高亮
         delegate = self.editor.itemDelegate()
         if hasattr(delegate, 'set_search_config'):
@@ -2625,9 +2367,28 @@ class TreeSearchPanel(SearchPanel):
             self.editor.viewport().update()
 
 
+class JsonToolsApplication(QApplication):
+    def __init__(self, argv):
+        super().__init__(argv)
+        self.setQuitOnLastWindowClosed(False)
+        self.aboutToQuit.connect(WindowManager.instance().destroy_all)
+
+    def event(self, event):
+        if event.type() != QtCore.QEvent.Quit:
+            return super().event(event)
+
+        # Dock 退出会让 Qt 先关闭窗口，此时允许 closeEvent 正常完成。
+        manager = WindowManager.instance()
+        manager.is_quitting = True
+        try:
+            return super().event(event)
+        finally:
+            manager.is_quitting = False
+
+
 if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    # 启动即显示第一个 JSON 窗口
+    app = JsonToolsApplication(sys.argv)
+    # 启动即显示第一个 JSON 窗口（注册在窗口管理器内完成）
     first_window = JsonFormatterWindow()
     first_window.show()
     sys.exit(app.exec())

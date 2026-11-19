@@ -32,7 +32,7 @@ exe = EXE(
     target_arch='arm64',
     codesign_identity=None,
     entitlements_file=None,
-    icon=['icon.icns'],
+    icon=['icon-dark.icns'],
 )
 coll = COLLECT(
     exe,
@@ -46,7 +46,7 @@ coll = COLLECT(
 app = BUNDLE(
     coll,
     name='JSON格式化.app',
-    icon='icon.icns',
+    icon='icon-dark.icns',
     bundle_identifier='com.lawliet.jsonformatter',
     # macOS Finder 和“显示简介”里的版本号来自 Info.plist。
     # 如果这里不显式写入版本字段，某些构建结果会显示默认值 0.0.0。
